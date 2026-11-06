@@ -1,0 +1,21 @@
+services:
+  ip-scanner:
+    build: .
+    image: ip-scanner:latest
+    container_name: ip-scanner
+    restart: unless-stopped
+    # Host networking is required so ARP/NDP discovery and the host's neighbour
+    # table (ip neigh) see the real LAN segments. Without it the container only
+    # sees Docker's bridge. Restrict access with BIND_HOST / a firewall.
+    network_mode: host
+    env_file: .env
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]        # raw sockets for nmap/arp-scan; NET_ADMIN is NOT needed
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - scanner-data:/data
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+volumes:
+  scanner-data:

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IP Scanner</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--tx:#1b2430;--mut:#6b7684;--bd:#dde3ea;--ac:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#0f141a;--card:#18202a;--tx:#e6ebf1;--mut:#8b97a5;--bd:#2a3542;--ac:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif}
+header{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--bd);background:var(--card);flex-wrap:wrap}
+header h1{font-size:16px;margin:0 12px 0 0}nav button{background:none;border:0;color:var(--mut);padding:8px 12px;cursor:pointer;font-size:14px;border-radius:6px}
+nav button.on{color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,transparent)}
+main{padding:16px;max-width:1400px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px}
+.grid{display:grid;gap:12px}.g4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.hero{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}.hero .card{flex:1 1 260px}.hero .main{flex:2 1 360px;border-color:var(--ac)}
+.lbl{font-size:11px;letter-spacing:.08em;color:var(--mut);text-transform:uppercase}.big{font-size:40px;font-weight:700;font-family:ui-monospace,monospace;margin:4px 0}
+.mid{font-size:22px;font-weight:600;font-family:ui-monospace,monospace}.num{font-size:26px;font-weight:700}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid currentColor}
+.HIGH,.ONLINE{color:var(--ok)}.MEDIUM,.RESERVED{color:var(--warn)}.LOW,.OFFLINE{color:var(--bad)}.UNKNOWN{color:var(--mut)}
+.warn{color:var(--warn);font-size:12px;margin:2px 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
+th{cursor:pointer;color:var(--mut);font-size:12px;position:sticky;top:0;background:var(--card)}tr.row:hover{background:color-mix(in srgb,var(--ac) 8%,transparent);cursor:pointer}
+.scroll{overflow:auto;max-height:65vh}.bar{height:10px;background:var(--bd);border-radius:5px;overflow:hidden;display:flex}.bar i{display:block;height:100%}
+input,select,button.b,textarea{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 9px;font:inherit}
+button.b{cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:var(--ac)}.bar-f{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.cells{display:flex;flex-wrap:wrap;gap:2px;margin-top:8px}.cells i{width:10px;height:10px;border-radius:2px;background:var(--bd)}
+.cells .O{background:var(--ok)}.cells .F{background:var(--bad)}.cells .R{background:var(--warn)}.cells .U{background:var(--mut)}.cells .G{background:var(--ac)}.cells .X{background:repeating-linear-gradient(45deg,var(--bd),var(--bd) 2px,transparent 2px,transparent 4px)}
+dialog{border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);max-width:760px;width:94%}
+label{display:block;margin:6px 0 2px;color:var(--mut);font-size:12px}label.c{display:flex;gap:6px;align-items:center;color:var(--tx)}.f input[type=text],.f input[type=password],.f input[type=number],.f textarea{width:100%}
+.kv td:first-child{color:var(--mut);width:140px}#toast{position:fixed;bottom:16px;right:16px;background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none}
+@media(max-width:600px){.big{font-size:30px}}
+</style></head><body>
+<header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
+<main id="main"></main><dialog id="dlg"></dialog><div id="toast"></div>
+<script>
+const $=(s,e=document)=>e.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let TOKEN=localStorage.getItem('tok')||'', tab='dash', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false};
+async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Access-Token':TOKEN,...(o.headers||{})};
+ const r=await fetch('/api'+p,o); const j=await r.json().catch(()=>({}));
+ if(r.status==401&&j.detail=='settings login required'){const e=new Error(j.detail);e.login=true;throw e}
+ if(r.status==401&&!p.startsWith('/auth/')){TOKEN=prompt('Access token')||'';localStorage.setItem('tok',TOKEN);return api(p,o)}
+ if(!r.ok) throw new Error(j.detail||r.statusText); return j}
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
+const ago=s=>{if(!s)return'never';const d=(Date.now()-new Date(s))/1000;return d<90?'just now':d<5400?Math.round(d/60)+' min ago':d<172800?Math.round(d/3600)+' h ago':Math.round(d/86400)+' d ago'};
+$('#nav').innerHTML=[['dash','Dashboard'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
+$('#nav').onclick=e=>{if(e.target.dataset.k){tab=e.target.dataset.k;render(true)}};
+async function load(){[D.sum,D.ips,D.subs,D.src]=await Promise.all([api('/summary'),api('/ips'),api('/subnets'),api('/sources')]);$('#upd').textContent='updated '+new Date().toLocaleTimeString()}
+async function render(force){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.k==tab));
+ if(tab=='settings'){return settingsView()} if(tab=='events'){return eventsView()}
+ if(force||!D.sum) await load(); if(tab=='dash')dashView(); else subnetsView()}
+function ffCard(f,main){const w=(f.warnings||[]).map(x=>`<div class="warn">⚠ ${esc(x)}</div>`).join('');
+ return `<div class="card ${main?'main':''}"><div class="lbl">${main?'FIRST AVAILABLE IP':'First available'} · ${esc(f.subnet)}</div>
+ <div class="${main?'big':'mid'}">${f.ip?esc(f.ip):'— none —'}</div>
+ <div>${esc(f.cidr)}${f.vlan!=null?' · VLAN '+f.vlan:''} ${f.confidence?`<span class="pill ${f.confidence}">${f.confidence}</span>`:''}
+ <button class="b" onclick="reserve('${f.ip}')" ${f.ip?'':'hidden'}>Reserve</button></div>
+ <div class="lbl" style="margin-top:6px">verified ${ago(f.verified_at)}</div>${w}</div>`}
+function dashView(){const s=D.sum, ff=s.first_free;
+ const sub=(a,b)=>`<div class="card"><div class="lbl">${a}</div><div class="num">${b}</div></div>`;
+ const srcs=[...new Set(D.ips.flatMap(i=>i.sources))], vl=[...new Set(D.ips.map(i=>i.vlan).filter(v=>v!=null))];
+ $('#main').innerHTML=`<div class="hero">${ff.length?ffCard(ff[0],1)+ff.slice(1).map(f=>ffCard(f)).join(''):'<div class="card main"><div class="lbl">FIRST AVAILABLE IP</div><div class="big">—</div>Add a subnet in Subnets.</div>'}</div>
+ <div class="grid g4">${sub('Subnets',s.subnets)}${sub('Used IPs',s.used)}${sub('Free IPs',s.free)}${sub('Online',`<span class=ONLINE>${s.online}</span>`)}${sub('Offline',`<span class=OFFLINE>${s.offline}</span>`)}${sub('Last scan',`<span style="font-size:15px">${ago(s.last_scan)}</span>`)}${s.conflicts?`<div class="card" style="cursor:pointer" onclick="F.conflict=!F.conflict;dashView()"><div class="lbl">IP conflicts (click to ${F.conflict?'show all':'filter'})</div><div class="num LOW">${s.conflicts}</div></div>`:''}</div>
+ <div class="bar-f"><input id="q" placeholder="Search…" value="${esc(F.q)}">
+ ${sel('subnet',D.subs.map(x=>x.name))}${sel('vlan',vl)}${sel('status',['ONLINE','OFFLINE','RESERVED','UNKNOWN'])}${sel('source',srcs)}
+ <button class="b" onclick="exportCsv()">Export CSV</button> <button class="b p" onclick="scanAll()">Scan now</button></div>${F.conflict?`<div class="card" style="margin-bottom:12px"><b>Conflicts</b>${D.ips.filter(i=>i.conflict).map(i=>`<div class="warn">⚠ ${esc(i.ip)} — ${esc(i.conflict)} <button class="b" onclick="ignoreConflict('${esc(i.ip)}')">Ignore</button></div>`).join('')}</div>`:''}<div class="card scroll" id="tbl"></div>${(s.no_ip||[]).length?`<div class="card" style="margin-top:12px"><b>Known devices without an IP (${s.no_ip.length})</b><div class="lbl">e.g. VM without guest agent and no static IP in config</div><table>${s.no_ip.map(d=>`<tr><td>${esc(d.source)}/${esc(d.kind)}</td><td>${esc(d.name)}</td><td>${esc(d.mac)}</td><td>${esc(d.state)}</td><td style="white-space:normal;color:var(--mut)">${esc(d.extra.agent_error||d.extra.error||'')}</td></tr>`).join('')}</table></div>`:''}`;
+ $('#q').oninput=e=>{F.q=e.target.value;table()};document.querySelectorAll('select[data-f]').forEach(e=>e.onchange=()=>{F[e.dataset.f]=e.value;table()});table()}
+const sel=(k,o)=>`<select data-f="${k}"><option value="">${k}: all</option>${o.map(x=>`<option ${F[k]==x?'selected':''}>${esc(x)}</option>`).join('')}</select>`;
+const COLS=[['ip','IP Address'],['hostname','Hostname'],['device_name','Device Name'],['mac','MAC Address'],['manufacturer','Manufacturer'],['device_type','Device Type'],['sources','Source'],['subnet','Subnet'],['vlan','VLAN'],['status','Status'],['last_seen_iso','Last Seen']];
+const ipn=ip=>ip.includes(':')?1e12:ip.split('.').reduce((a,b)=>a*256+ +b,0);
+function table(){let r=D.ips.filter(i=>(!F.q||JSON.stringify(Object.values(i)).toLowerCase().includes(F.q.toLowerCase()))&&(!F.subnet||i.subnet==F.subnet)&&(!F.vlan||i.vlan==F.vlan)&&(!F.status||i.status==F.status)&&(!F.source||i.sources.includes(F.source))&&(!F.conflict||i.conflict));
+ r.sort((a,b)=>{let x=sortK=='ip'?ipn(a.ip):(a[sortK]??''),y=sortK=='ip'?ipn(b.ip):(b[sortK]??'');return(x>y?1:x<y?-1:0)*sortD});
+ $('#tbl').innerHTML=`<table><tr>${COLS.map(([k,n])=>`<th data-k="${k}">${n}${sortK==k?(sortD>0?' ▲':' ▼'):''}</th>`).join('')}</tr>${r.map(i=>`<tr class="row" data-key="${esc(i.device_key)}"><td>${esc(i.ip)}${i.conflict?` <span class="LOW" title="${esc(i.conflict)}">⚠</span>`:''}</td><td>${esc(i.hostname)}</td><td>${esc(i.device_name)}</td><td>${esc(i.mac)}</td><td>${esc(i.manufacturer)}</td><td>${esc(i.device_type)}</td><td>${esc(i.sources.join(', '))}</td><td>${esc(i.subnet)}</td><td>${i.vlan??''}</td><td><span class="${i.status}">${i.status}</span></td><td>${ago(i.last_seen_iso)}</td></tr>`).join('')}</table>`;
+ $('#tbl').onclick=e=>{const th=e.target.closest('th'),tr=e.target.closest('tr.row');if(th){sortD=sortK==th.dataset.k?-sortD:1;sortK=th.dataset.k;table()}else if(tr)device(tr.dataset.key)}}
+async function device(key){const d=await api('/device?key='+encodeURIComponent(key));
+ $('#dlg').innerHTML=`<h3>${esc(d.names[0]||d.hostnames[0]||d.ips[0])}</h3><table class="kv"><tr><td>IP addresses</td><td>${d.ips.join(', ')}</td></tr><tr><td>MAC</td><td>${d.macs.join(', ')||'—'}</td></tr><tr><td>Hostname</td><td>${d.hostnames.join(', ')||'—'}</td></tr><tr><td>Manufacturer</td><td>${esc(d.manufacturer)||'—'}</td></tr><tr><td>Sources</td><td>${d.sources.join(', ')}</td></tr><tr><td>Last seen</td><td>${ago(d.last_seen)}</td></tr></table>
+ <h4>Source records</h4><table>${d.records.map(r=>`<tr><td>${r.source}/${r.kind}</td><td>${esc(r.name)}</td><td>${esc(r.ip)||'—'}</td><td>${esc(r.ip_origin)}</td><td>${esc(r.state)}</td><td style="white-space:normal;font-size:12px;color:var(--mut)">${esc(Object.entries(r.extra||{}).filter(([k,v])=>v).map(([k,v])=>k+'='+(typeof v=='object'?JSON.stringify(v):v)).join(' '))}</td></tr>`).join('')||'<tr><td>none</td></tr>'}</table>
+ <h4>IP / availability history</h4><div class="scroll" style="max-height:220px"><table>${d.events.map(e=>`<tr><td>${e.ts.replace('T',' ')}</td><td>${e.kind}</td><td>${e.ip||''}</td><td>${esc(e.detail)}</td></tr>`).join('')||'<tr><td>no history yet</td></tr>'}</table></div>
+ <p><button class="b" onclick="$('#dlg').close()">Close</button></p>`;$('#dlg').showModal()}
+function subnetsView(){$('#main').innerHTML=`<div class="bar-f"><button class="b p" onclick="subnetForm()">+ Add subnet</button><button class="b" onclick="scanAll()">Scan all now</button></div><div class="grid g2">${D.subs.map(s=>{const c=s.counts,t=s.usable||1;
+ return `<div class="card"><div style="display:flex;justify-content:space-between"><b>${esc(s.name)}</b><span class="lbl">${s.cidr}${s.vlan!=null?' · VLAN '+s.vlan:''}</span></div>
+ <div class="lbl">${s.range}${s.gateway?' · gw '+s.gateway:''}</div>
+ <div class="bar" style="margin:8px 0"><i style="width:${100*c.ONLINE/t}%;background:var(--ok)"></i><i style="width:${100*c.OFFLINE/t}%;background:var(--bad)"></i><i style="width:${100*(c.RESERVED+c.UNKNOWN)/t}%;background:var(--warn)"></i></div>
+ <div>${s.used} used · <b>${s.free} free</b> · ${s.utilization}% · <span class=ONLINE>${c.ONLINE} on</span> <span class=OFFLINE>${c.OFFLINE} off</span> <span class=RESERVED>${c.RESERVED} res</span></div>
+ ${s.cells?`<div class="cells">${[...s.cells].map((c,i)=>`<i class="${c}" title="${hostAt(s,i)}"></i>`).join('')}</div>`:''}
+ <div class="lbl" style="margin-top:8px">${esc(s.last_scan_status)} · full scan ${ago(s.last_full_scan_at)} · ${s.l2?'ARP/NDP ok':'no L2 evidence'}</div>
+ <div style="margin-top:8px"><button class="b" onclick="scan(${s.id},'full')" ${s.scan_running?'disabled':''}>${s.scan_running?'Scanning…':'Full scan'}</button> <button class="b" onclick="subnetForm(${s.id})">Edit</button> <button class="b" onclick="delSub(${s.id})">Delete</button> <button class="b" onclick="filt('${esc(s.name)}')">Devices</button></div></div>`}).join('')}</div>`}
+function hostAt(s,i){const p=s.first_host.split('.').map(Number);let n=((p[0]*256+p[1])*256+p[2])*256+p[3]+i;return [n>>>24,(n>>>16)&255,(n>>>8)&255,n&255].join('.')}
+function filt(n){F.subnet=n;tab='dash';render()}
+async function scan(id,k){try{await api(`/scan?subnet_id=${id}&kind=${k}`,{method:'POST'});toast('Scan started')}catch(e){toast(e.message)}setTimeout(()=>render(true),1500)}
+async function scanAll(){await api('/scan?kind=full',{method:'POST'});toast('Scans started');setTimeout(()=>render(true),2000)}
+async function delSub(id){if(confirm('Delete subnet and its scan data?')){await api('/subnets/'+id,{method:'DELETE'});render(true)}}
+async function reserve(ip){const note=prompt('Reserve '+ip+' — note:','');if(note===null)return;await api('/reservations',{method:'POST',body:JSON.stringify({ip,note})});toast('Reserved');render(true)}
+function subnetForm(id){const s=D.subs.find(x=>x.id==id)||{name:'',cidr:'',gateway:'',vlan:'',description:'',scan_interval:'',exclusions:[],enabled:true};
+ $('#dlg').innerHTML=`<form class="f" id="sf"><h3>${id?'Edit':'Add'} subnet</h3><label>Name</label><input type="text" name="name" value="${esc(s.name)}" required><label>CIDR (IPv4 or IPv6)</label><input type="text" name="cidr" value="${esc(s.cidr)}" required placeholder="192.168.1.0/24">
+ <label>Gateway</label><input type="text" name="gateway" value="${esc(s.gateway)}"><label>VLAN ID</label><input type="number" name="vlan" value="${s.vlan??''}"><label>Description</label><input type="text" name="description" value="${esc(s.description)}">
+ <label>Full scan interval (min, empty = global)</label><input type="number" name="scan_interval" value="${s.scan_interval??''}"><label>Never propose (DHCP pool etc.; one per line: IP, IP-IP or CIDR)</label><textarea name="exclusions" rows="3">${esc((s.exclusions||[]).join('\n'))}</textarea>
+ <label class="c"><input type="checkbox" name="enabled" ${s.enabled?'checked':''}> enabled</label><p><button class="b p">Save</button> <button type="button" class="b" onclick="$('#dlg').close()">Cancel</button></p></form>`;$('#dlg').showModal();
+ $('#sf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),n=k=>f.get(k)===''?null:+f.get(k);
+  try{await api('/subnets'+(id?'/'+id:''),{method:id?'PUT':'POST',body:JSON.stringify({name:f.get('name'),cidr:f.get('cidr'),gateway:f.get('gateway')||null,vlan:n('vlan'),description:f.get('description'),scan_interval:n('scan_interval'),enabled:!!f.get('enabled'),exclusions:f.get('exclusions').split('\n').map(x=>x.trim()).filter(Boolean)})});$('#dlg').close();render(true)}catch(x){toast(x.message)}}}
+async function eventsView(){const [ev,sc]=await Promise.all([api('/events'),api('/scans')]);$('#main').innerHTML=`<div class="grid g2"><div class="card scroll"><b>Changes</b><table>${ev.map(e=>`<tr><td>${e.ts.replace('T',' ')}</td><td>${e.kind}</td><td>${e.ip||''}</td><td style="white-space:normal">${esc(e.detail)}</td></tr>`).join('')}</table></div><div class="card scroll"><b>Scan runs</b><table>${sc.map(e=>`<tr><td>${e.started.replace('T',' ')}</td><td>${e.kind}</td><td class="${e.status=='ok'?'ONLINE':'LOW'}">${e.status}</td><td>${e.found}</td><td style="white-space:normal">${esc(e.message)}</td></tr>`).join('')}</table></div></div>`}
+const SET=[['Dockhand','dockhand',[['dockhand_enabled','Enabled','b'],['dockhand_url','URL (https://host:3000)'],['dockhand_token','API token (dh_…)','p'],['dockhand_verify_tls','Verify TLS','b'],['dockhand_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['dockhand_ca_bundle','CA bundle path (optional)'],['docker_engine_url','Docker Engine API fallback URL (optional)'],['dockhand_interval','Interval (min)','n']]],
+['Proxmox VE','proxmox',[['proxmox_enabled','Enabled','b'],['proxmox_url','URL (https://pve:8006)'],['proxmox_token_id','Token ID (user@realm!name)'],['proxmox_token_secret','Token secret','p'],['proxmox_cluster_name','Cluster name'],['proxmox_verify_tls','Verify TLS','b'],['proxmox_fingerprint','Pinned certificate SHA-256 (overrides CA/verify; for self-signed)'],['proxmox_ca_bundle','CA bundle path (optional)'],['proxmox_interval','Interval (min)','n']]],
+['ESPHome (optional)','esphome',[['esphome_enabled','Enabled','b'],['esphome_dashboard_url','Dashboard URL'],['esphome_dashboard_user','Dashboard user'],['esphome_dashboard_password','Dashboard password','p'],['esphome_hosts','Extra hosts (host or name=host, comma separated)'],['esphome_native_api','Use native API','b'],['esphome_noise_psk','API encryption key (base64)','p'],['esphome_api_password','API password','p'],['esphome_interval','Interval (min)','n']]],
+['OPNsense (DHCP)','opnsense',[['opnsense_enabled','Enabled','b'],['opnsense_url','URL (https://opnsense)'],['opnsense_key','API key','p'],['opnsense_secret','API secret','p'],['opnsense_reservations','Include static reservations (Kea)','b'],['opnsense_verify_tls','Verify TLS','b'],['opnsense_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['opnsense_ca_bundle','CA bundle path (optional)'],['opnsense_interval','Interval (min)','n']]],
+['UniFi (DHCP clients)','unifi',[['unifi_enabled','Enabled','b'],['unifi_url','URL (https://unifi)'],['unifi_api_key','API key','p'],['unifi_site','Site name (empty = first)'],['unifi_verify_tls','Verify TLS','b'],['unifi_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['unifi_ca_bundle','CA bundle path (optional)'],['unifi_interval','Interval (min)','n']]],
+['Conflicts','',[['ignore_host_mode_conflicts','Ignore conflicts caused by Docker host-network containers','b']]],
+['Webhook notifications','webhook',[['webhook_enabled','Enabled','b'],['webhook_url','Webhook URL','p'],['webhook_auth_header','Authorization header (optional)','p'],['webhook_events','Events (new_host,mac_changed,ip_changed,online,offline,conflict,source_down)'],['webhook_verify_tls','Verify TLS','b']]],
+['Scanning','',[['discovery_interval','Ping/ARP discovery interval (min)','n'],['full_scan_interval','Full subnet scan interval (min)','n'],['reverse_dns','Reverse DNS','b'],['arp_scan','Also use arp-scan','b'],['port_scan','Port scan alive hosts','b'],['port_list','Ports'],['nmap_max_rate','Max packets/s','n'],['max_scan_hosts','Max hosts per subnet scan','n'],['free_after_hours','Treat silent hosts as taken for (h)','n']]]];
+async function settingsView(){const a=await api('/auth/status');
+ if(!a.authenticated)return loginView();
+ let st;try{st=await api('/settings')}catch(x){if(x.login)return loginView();throw x}
+ const src=D.src||await api('/sources'),rules=await api('/conflict-rules');
+ $('#main').innerHTML=`<form id="stf" class="grid g2 f">${SET.map(([t,id,fs])=>`<div class="card"><b>${t}</b> ${id?`<button type="button" class="b" data-t="${id}" style="float:right">Test connection</button><div class="lbl" data-st="${id}">${(()=>{const x=src.find(y=>y.source==id);return x?(x.ok?'✓ ok, '+x.count+' records, '+ago(x.last_ok):'✗ '+esc(x.error)):''})()}</div>`:''}
+ ${fs.map(([k,l,ty])=>ty=='b'?`<label class="c"><input type="checkbox" name="${k}" ${st[k]?'checked':''}> ${l}</label>`:`<label>${l}</label><input type="${ty=='p'?'password':ty=='n'?'number':'text'}" name="${k}" value="${esc(st[k])}" ${ty=='p'?'autocomplete="new-password"':''}>`).join('')}</div>`).join('')}
+ <div><button class="b p">Save settings</button></div></form>
+ <div class="card" style="margin-top:12px"><b>Silenced conflicts</b>${rules.length?`<table>${rules.map(r=>`<tr><td>${esc(r.ip||'')}</td><td>${esc(r.mac||'')}</td><td>${esc(r.note)}</td><td><button class="b" onclick="delRule(${r.id})">Remove</button></td></tr>`).join('')}</table>`:'<div class="lbl">none — use “Ignore” next to a conflict on the dashboard</div>'}</div>
+ <div class="card" style="margin-top:12px"><b>Settings password</b>${!a.configured?'<div class="warn">⚠ No password set: anyone who can open this page can read/change settings.</div>':''}${a.env_managed?'<div class="lbl">Managed by SETTINGS_PASSWORD env variable.</div>':`<form id="pwf" class="f">${a.configured?'<label>Current password</label><input type="password" name="cur" autocomplete="current-password">':''}<label>New password (min 8 chars)</label><input type="password" name="new" autocomplete="new-password"><button class="b p">${a.configured?'Change':'Set'} password</button></form>`}${a.configured?'<button class="b" onclick="logout()" style="margin-top:8px">Log out</button>':''}</div>`;
+ const pwf=$('#pwf');if(pwf)pwf.onsubmit=async e=>{e.preventDefault();const f=new FormData(pwf);try{await api('/auth/password',{method:'POST',body:JSON.stringify({password:f.get('cur')||f.get('new'),new_password:f.get('new')})});toast('Password saved');render(true)}catch(x){toast(x.message)}};
+ const get=()=>{const o={};for(const[,,fs]of SET)for(const[k,,ty]of fs){const e=$(`[name=${k}]`);o[k]=ty=='b'?e.checked:ty=='n'?+e.value:e.value}return o};
+ $('#stf').onsubmit=async e=>{e.preventDefault();try{await api('/settings',{method:'PUT',body:JSON.stringify(get())});toast('Saved')}catch(x){toast(x.message)}};
+ $('#stf').onclick=async e=>{const t=e.target.dataset.t;if(!t)return;const r=await api(t=='webhook'?'/webhook/test':'/test/'+t,{method:'POST',body:JSON.stringify(get())});$(`[data-st=${t}]`).innerHTML=(r.ok?'✓ ':'✗ ')+esc(r.message)}}
+function loginView(){$('#main').innerHTML=`<form id="lf" class="card f" style="max-width:360px"><b>Settings login</b><label>Password</label><input type="password" name="p" autocomplete="current-password" autofocus><button class="b p">Log in</button></form>`;
+ $('#lf').onsubmit=async e=>{e.preventDefault();try{await api('/auth/login',{method:'POST',body:JSON.stringify({password:new FormData(e.target).get('p')})});render(true)}catch(x){toast(x.message)}}}
+async function logout(){await api('/auth/logout',{method:'POST'});render(true)}
+async function delRule(id){await api('/conflict-rules/'+id,{method:'DELETE'});render(true)}
+async function ignoreConflict(ip,mac){const note=prompt('Silence conflict on '+ip+' — note (why it is harmless):','');if(note===null)return;await api('/conflict-rules',{method:'POST',body:JSON.stringify({ip,note})});toast('Conflict silenced');render(true)}
+async function exportCsv(){const qs=new URLSearchParams();for(const k of['q','subnet','vlan','status','source'])if(F[k])qs.set(k,F[k]);
+ const r=await fetch('/api/export/ips.csv?'+qs,{headers:{'X-Access-Token':TOKEN}});if(!r.ok)return toast('Export failed: '+r.status);
+ const u=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=u;a.download='ip-addresses.csv';a.click();URL.revokeObjectURL(u)}
+render(true);setInterval(()=>{if(tab=='dash'||tab=='subnets')render(true)},30000);
+</script></body></html>
