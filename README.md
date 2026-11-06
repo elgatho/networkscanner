@@ -2,6 +2,13 @@
 
 Self-hosted scanner that merges Dockhand, Proxmox VE, ESPHome and active network scans (nmap, arp-scan, `ip neigh`) into one inventory and recommends the **first available IP** per subnet. No MCP; direct REST APIs and system tools only. Read-only toward all external systems.
 
+## Docker image
+Published to GitHub Container Registry on every version tag (`v1.2.3`), built for amd64 and arm64:
+```bash
+docker pull ghcr.io/elgatho/networkscanner:latest      # or a version, e.g. :1.0.0
+```
+In `docker-compose.yml` use `image: ghcr.io/elgatho/networkscanner:1.0.0` instead of `build: .`.
+
 ## Install
 ```bash
 cp .env.example .env      # set PORT, optionally ACCESS_TOKEN
