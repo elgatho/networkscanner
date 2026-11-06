@@ -1,7 +1,7 @@
 services:
   ip-scanner:
-    build: .
-    image: ip-scanner:latest
+    image: ghcr.io/elgatho/networkscanner:latest
+    pull_policy: always       # re-check the registry on every `docker compose up`
     container_name: ip-scanner
     restart: unless-stopped
     # Host networking is required so ARP/NDP discovery and the host's neighbour
