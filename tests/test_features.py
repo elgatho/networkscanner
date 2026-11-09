@@ -373,18 +373,22 @@ def test_adguard_rewrites_become_records():
     assert "4 DNS rewrite" in conn.test()["message"]
 
 
-def test_dashboard_links_use_ip_from_dns_rewrites():
-    from app.services import _ip_url, _service_url
+def test_dashboard_links_prefer_dns_rewrite_names():
+    from app.services import _service_url
     names = {"nas.lan": "192.168.20.5", "jellyfin.lan": "192.168.20.9"}
-    assert _ip_url("https://jellyfin.lan:8096/web", names) == "https://192.168.20.9:8096/web"
-    assert _ip_url("http://unknown.lan:80", names) == "http://unknown.lan:80"
-    assert _ip_url("http://10.0.0.1:80", names) == "http://10.0.0.1:80"
-    assert _service_url({"env_host": "nas.lan", "ports": [{"public": 8080}]}, {}, names) == "http://192.168.20.5:8080"
-    # container with its own LAN address and no published port -> link to the container
-    assert _service_url({"env_host": "192.168.20.59"}, {}, names, "192.168.20.26") == "http://192.168.20.26:80"
-    # published port wins: keep the Docker host
-    assert _service_url({"env_host": "192.168.20.59", "ports": [{"public": 8096}]}, {}, names, "192.168.20.26") == "http://192.168.20.59:8096"
-    assert _service_url({"env_host": "nas.lan"}, {"dashboard.url": "http://nas.lan:3000"}, names) == "http://192.168.20.5:3000"
+    dns = {"192.168.20.9": "jellyfin.lan", "192.168.20.26": "aria.lan"}
+    # typed URLs are kept exactly as written
+    assert _service_url({}, {"dashboard.url": "http://ip.lan/"}, names, None, dns) == "http://ip.lan/"
+    assert _service_url({}, {"dashboard.url": "https://jellyfin.lan:8096/web"}, names, None, dns) == "https://jellyfin.lan:8096/web"
+    # auto links: IP with a DNS rewrite -> the name
+    assert _service_url({"env_host": "192.168.20.9", "ports": [{"public": 8096}]}, {}, names, None, dns) == "http://jellyfin.lan:8096"
+    # env host given as a name stays a name
+    assert _service_url({"env_host": "nas.lan", "ports": [{"public": 8080}]}, {}, names, None, dns) == "http://nas.lan:8080"
+    # IP without a rewrite stays an IP
+    assert _service_url({"env_host": "192.168.20.5", "ports": [{"public": 8080}]}, {}, names, None, dns) == "http://192.168.20.5:8080"
+    # container with its own LAN address, named in DNS
+    assert _service_url({"env_host": "192.168.20.59"}, {}, names, "192.168.20.26", dns) == "http://aria.lan:80"
+    assert _service_url({"env_host": "192.168.20.59", "ports": [{"public": 8096}]}, {}, names, "192.168.20.26", dns) == "http://192.168.20.59:8096"
 
 
 def test_lan_ip_helper():

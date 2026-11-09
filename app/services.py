@@ -18,7 +18,6 @@ only 443 is exposed; otherwise the published port on the Docker host; otherwise 
 """
 import ipaddress
 import logging
-from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 
@@ -85,6 +84,17 @@ def name_to_ip_map(s) -> dict[str, str]:
     return out
 
 
+def ip_names(s) -> dict[str, str]:
+    """IP -> DNS name from AdGuard rewrites (exact names only; shortest name wins). Used to show names in links."""
+    out: dict[str, str] = {}
+    recs = s.scalars(select(SourceRecord).where(SourceRecord.source == "adguard", SourceRecord.ip.is_not(None)))
+    for r in sorted(recs, key=lambda r: (len(r.name or ""), r.name or "")):
+        if not r.name or "*" in r.name:
+            continue
+        out.setdefault(r.ip, r.name.lower().rstrip("."))
+    return out
+
+
 def _resolve(host: str, names: dict[str, str]) -> str:
     """Host as an IP literal. Names are matched to an IP via the map; unknown names stay as they are."""
     if not host:
@@ -96,21 +106,6 @@ def _resolve(host: str, names: dict[str, str]) -> str:
         pass
     ip = names.get(host.lower().rstrip("."))
     return ip or host
-
-
-def _ip_url(url: str, names: dict[str, str]) -> str:
-    """Rewrite the host part of a link to its IP, keeping scheme, port and path."""
-    parts = urlsplit(url)
-    host = parts.hostname
-    if not host:
-        return url
-    ip = _resolve(host, names)
-    if ip == host:
-        return url
-    if ":" in ip:  # IPv6 literal needs brackets in a URL
-        ip = f"[{ip}]"
-    netloc = ip + (f":{parts.port}" if parts.port else "")
-    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def _lan_ip(host: str, ips: list[str]) -> str | None:
@@ -133,33 +128,37 @@ def _scheme(port: int) -> str:
 
 
 def _service_url(extra: dict, labels: dict, names: dict[str, str] | None = None,
-                 lan_ip: str | None = None) -> str | None:
+                 lan_ip: str | None = None, dns: dict[str, str] | None = None) -> str | None:
+    """Link for a tile. dashboard.url is used exactly as typed. Otherwise the address is the DNS name
+    from AdGuard when one exists for that IP, else the IP."""
     names = names or {}
+    dns = dns or {}
     if labels.get("dashboard.url"):
-        return _ip_url(labels["dashboard.url"], names)
+        return labels["dashboard.url"]
     host = extra.get("env_host")
     if not host:
         return None
-    host = _resolve(host, names)
+    shown = dns.get(_resolve(host, names), host)
     if labels.get("dashboard.port"):  # explicit port; a LAN-attached container answers on its own address
         try:
             port = int(labels["dashboard.port"])
         except ValueError:
             port = 80
-        return f"{_scheme(port)}://{lan_ip or host}:{port}"
+        return f"{_scheme(port)}://{dns.get(lan_ip, lan_ip) if lan_ip else shown}:{port}"
     for p in extra.get("ports") or []:
         if p.get("ip") in ("127.0.0.1", "::1"):  # bound to loopback only: not reachable from the LAN
             continue
         if p.get("public"):  # published on the Docker host, so the host address is the one to use
-            return f"{_scheme(p['public'])}://{host}:{p['public']}"
+            return f"{_scheme(p['public'])}://{shown}:{p['public']}"
     if not lan_ip:
-        return f"http://{host}:80"  # no published port and no LAN address: assume the web UI is on 80
+        return f"http://{shown}:80"  # no published port and no LAN address: assume the web UI is on 80
+    lan = dns.get(lan_ip, lan_ip)
     exposed = sorted(set(extra.get("exposed") or []))
     if not exposed or 80 in exposed:
-        return f"http://{lan_ip}:80"
+        return f"http://{lan}:80"
     if 443 in exposed:
-        return f"https://{lan_ip}"
-    return f"http://{lan_ip}:{exposed[0]}"
+        return f"https://{lan}"
+    return f"http://{lan}:{exposed[0]}"
 
 
 def _groups(recs: list[dict]) -> dict[str, dict]:
@@ -174,7 +173,7 @@ def _groups(recs: list[dict]) -> dict[str, dict]:
     return groups
 
 
-def auto_fields(grp: dict, names: dict[str, str]) -> dict:
+def auto_fields(grp: dict, names: dict[str, str], dns: dict[str, str] | None = None) -> dict:
     extra = grp["extra"]
     labels = extra.get("labels") or {}
     image = extra.get("image") or ""
@@ -182,7 +181,7 @@ def auto_fields(grp: dict, names: dict[str, str]) -> dict:
     raw = extra.get("env_host") or ""
     host = _resolve(raw, names) if raw else ""
     lan = _lan_ip(host, grp["ips"]) if host else None
-    url = _service_url(extra, labels, names, lan) or ""
+    url = _service_url(extra, labels, names, lan, dns) or ""
     return {
         "name": labels.get("dashboard.name") or name,
         "category": categorize(image, name, labels.get("dashboard.category")),
@@ -213,10 +212,10 @@ def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
                     groups[key]["ips"] = sorted(set(groups[key]["ips"]) | set(dg["ips"]))
         except Exception as e:  # tiles still get created from the records we already have
             log.warning("Dockhand container details unavailable: %s", e)
-    names = name_to_ip_map(s)
+    names, dns = name_to_ip_map(s), ip_names(s)
     now = utcnow()
     for key in targets:
-        auto = auto_fields(groups[key], names)
+        auto = auto_fields(groups[key], names, dns)
         row = rows.get(key)
         if row is None:
             s.add(ServiceLink(key=key, auto=auto, override={}, seen_at=now))
