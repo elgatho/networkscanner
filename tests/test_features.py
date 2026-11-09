@@ -396,3 +396,6 @@ def test_lan_ip_helper():
     assert _lan_ip("192.168.20.59", ["172.18.0.3", "192.168.20.26"]) == "192.168.20.26"
     assert _lan_ip("192.168.20.59", ["172.18.0.3"]) is None
     assert _lan_ip("nas.lan", ["192.168.20.26"]) is None
+    # container on another LAN/VLAN keeps its own address; Docker bridge and host address are skipped
+    assert _lan_ip("192.168.20.59", ["172.18.0.3", "192.168.0.57"]) == "192.168.0.57"
+    assert _lan_ip("192.168.20.59", ["192.168.20.59"]) is None

@@ -109,17 +109,25 @@ def _resolve(host: str, names: dict[str, str]) -> str:
 
 
 def _lan_ip(host: str, ips: list[str]) -> str | None:
-    """Container address on the same IPv4 /24 as the Docker host (macvlan/LAN-attached), if any."""
+    """Container's own LAN address: first one on the Docker host's /24 (macvlan), else any address
+    outside Docker's default bridge range (172.16.0.0/12) and not the host itself."""
     try:
         h = ipaddress.ip_network(f"{host}/24", strict=False)
     except ValueError:
         return None
+    bridge = ipaddress.ip_network("172.16.0.0/12")
+    parsed = []
     for ip in ips:
         try:
-            if ipaddress.ip_address(ip) in h:
-                return ip
+            parsed.append(ipaddress.ip_address(ip))
         except ValueError:
             continue
+    for ip in parsed:
+        if ip.version == 4 and ip in h and str(ip) != host:
+            return str(ip)
+    for ip in parsed:
+        if ip.version == 4 and ip.is_private and not ip.is_loopback and ip not in bridge and str(ip) != host:
+            return str(ip)
     return None
 
 
