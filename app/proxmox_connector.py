@@ -37,6 +37,15 @@ def parse_lxc_net(val):
             "ip": d.get("ip"), "ip6": d.get("ip6"), "gw": d.get("gw")}
 
 
+DASH_LABEL = re.compile(r"^\s*(dashboard\.[a-z]+)\s*[:=]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def dashboard_labels(description):
+    """Lines 'dashboard.url: http://...' (or '=') in a guest's Notes -> {'dashboard.url': 'http://...'}.
+    Same keys as the Docker container labels, so one tile can be tuned the same way for both."""
+    return {k.lower(): v for k, v in DASH_LABEL.findall(description or "")}
+
+
 def conf_ip(v):
     """'192.168.1.5/24' -> ip; 'dhcp'/'auto'/'manual' -> None"""
     if not v or v in ("dhcp", "auto", "manual"):
@@ -117,7 +126,8 @@ class ProxmoxConnector:
         cfg = self.get(f"/nodes/{node}/{path}/{vmid}/config") or {}
         name = gst.get("name") or cfg.get("name") or cfg.get("hostname") or str(vmid)
         base = dict(source="proxmox", kind=kind, name=name, state=gst.get("status"))
-        ex0 = {"vmid" if kind == "vm" else "ctid": vmid, "node": node, "cluster": cluster}
+        ex0 = {"vmid" if kind == "vm" else "ctid": vmid, "node": node, "cluster": cluster,
+               "labels": dashboard_labels(cfg.get("description"))}
         nets = {}  # idx -> info
         for k, v in cfg.items():
             m = re.fullmatch(r"net(\d+)", k)

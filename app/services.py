@@ -15,6 +15,10 @@ Optional labels on the container override the defaults:
 
 Hand-made tiles (not from any container) are rows with key "custom|<uuid>" and no `auto` part.
 
+Proxmox VMs and LXC containers get the same kind of tile (key "proxmox|<cluster>|<kind>|<vmid>"). Their data is
+the local Proxmox snapshot, so `auto` follows it on every dashboard load. The labels are the same `dashboard.*`
+keys, written as lines in the guest's Notes (e.g. "dashboard.url: http://jellyfin.lan:8096").
+
 Default link: a container with its own LAN address (macvlan) links to that address on port 80, or https if
 only 443 is exposed; otherwise the published port on the Docker host; otherwise the host on port 80.
 """
@@ -186,6 +190,58 @@ def _groups(recs: list[dict]) -> dict[str, dict]:
     return groups
 
 
+PVE_ORIGIN_RANK = {"guest-agent": 0, "lxc-interface": 0, "configured": 1}  # runtime evidence first
+
+
+def _proxmox_groups(s) -> dict[str, dict]:
+    """Proxmox VM/LXC records (one per NIC address) -> {"proxmox|<cluster>|<kind>|<vmid>": {kind, name, state, extra, ips}}.
+    ips is a list of (origin rank, address)."""
+    groups: dict[str, dict] = {}
+    recs = s.scalars(select(SourceRecord).where(SourceRecord.source == "proxmox", SourceRecord.kind.in_(("vm", "lxc"))))
+    for r in recs:
+        ex = r.extra or {}
+        vmid = ex.get("vmid", ex.get("ctid"))
+        if vmid is None:
+            continue
+        key = f"proxmox|{ex.get('cluster') or ex.get('node') or ''}|{r.kind}|{vmid}"
+        g = groups.setdefault(key, {"kind": r.kind, "name": r.name, "state": r.state or "", "extra": ex, "ips": []})
+        if r.ip:
+            g["ips"].append((PVE_ORIGIN_RANK.get(r.ip_origin, 2), r.ip))
+    return groups
+
+
+def _ipv4(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).version == 4
+    except ValueError:
+        return False
+
+
+def proxmox_auto_fields(g: dict, dns: dict[str, str] | None = None) -> dict:
+    """Tile fields of a VM/LXC. Same labels as Docker (dashboard.*, read from the guest's Notes).
+    Link: dashboard.url as typed, else http://<first IPv4 or AdGuard name>:<dashboard.port or 80>."""
+    dns = dns or {}
+    ex = g["extra"]
+    labels = ex.get("labels") or {}
+    name = g["name"]
+    kind = g["kind"]
+    ips = [ip for _, ip in sorted(g["ips"], key=lambda t: t[0]) if _ipv4(ip)]
+    ip = ips[0] if ips else None
+    url = labels.get("dashboard.url") or ""
+    if not url and ip:
+        port = int(labels["dashboard.port"]) if str(labels.get("dashboard.port", "")).isdigit() else 80
+        url = f"{_scheme(port)}://{dns.get(ip, ip)}:{port}"
+    return {
+        "name": labels.get("dashboard.name") or name,
+        "category": categorize("", name, labels.get("dashboard.category")),
+        "description": labels.get("dashboard.description") or f"{kind.upper()} · {ex.get('node') or '?'}",
+        "icon": icon_url(labels.get("dashboard.icon"), "", name),
+        "url": url, "linkable": bool(url),
+        "hidden": str(labels.get("dashboard.hide", "")).lower() == "true",
+        "state": g["state"], "environment": ex.get("cluster") or "Proxmox", "host": ip or "",
+    }
+
+
 def auto_fields(grp: dict, names: dict[str, str], dns: dict[str, str] | None = None) -> dict:
     extra = grp["extra"]
     labels = extra.get("labels") or {}
@@ -235,8 +291,24 @@ def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
             s.add(ServiceLink(key=key, auto=auto, override={}, seen_at=now))
         elif refresh:
             row.auto, row.seen_at = auto, now
+    # Proxmox guests come from the local snapshot (no API call), so their tiles follow it on every load.
+    # The icon is downloaded only when it is new or its source URL changed.
+    pgroups = _proxmox_groups(s)
+    for key, g in pgroups.items():
+        auto = proxmox_auto_fields(g, dns)
+        row = rows.get(key)
+        raw = auto["icon"]
+        if row is not None and (row.auto or {}).get("icon_src") == raw:
+            auto["icon"] = row.auto.get("icon", "")
+        else:
+            auto["icon"] = icons.localize(raw)
+        auto["icon_src"] = raw
+        if row is None:
+            s.add(ServiceLink(key=key, auto=auto, override={}, seen_at=now))
+        else:
+            row.auto = auto
     s.commit()
-    return set(groups)
+    return set(groups) | set(pgroups)
 
 
 def _icon_value(v: str) -> str:

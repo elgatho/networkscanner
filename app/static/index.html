@@ -124,7 +124,7 @@ function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
  $('#hedit').textContent=EDIT?'✓ Gotowe':'✎ Edytuj kafelki'; $('#hedit').classList.toggle('p',EDIT);
  $('#hadd').style.display=EDIT?'':'none';
  $('#ht').innerHTML=topHtml(list);
- if(!HOME.services.length){$('#hn').innerHTML='';$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem lub z adresem LAN pojawią się tutaj (albo ustaw label <code>dashboard.url</code>).</div>`;return}
+ if(!HOME.services.length){$('#hn').innerHTML='';$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem lub z adresem LAN oraz maszyny VM i LXC z Proxmoxa pojawią się tutaj (albo ustaw etykietę <code>dashboard.url</code> w kontenerze lub w Notes maszyny).</div>`;return}
  $('#hn').innerHTML=(!list.length&&q)?`<div class="card">Brak wyników dla „${esc(q)}”.${searchOn()?` <span class="lbl">Enter = szukaj w SearXNG</span> · <a href="${esc(searchUrl(q))}" target="_blank" rel="noopener">otwórz wyniki wyszukiwania ↗</a>`:''}</div>`:'';
  if(!list.length){$('#hg').innerHTML='';return}
  const cats=[...new Set(list.map(x=>x.category))];
@@ -160,8 +160,8 @@ function tileDialog(x){const custom=!x||x.custom, a=(x&&!x.custom&&x.auto)||{}, 
  <label>Ikona (slug dashboard-icons lub URL) · <a href="https://dashboardicons.com/" target="_blank" rel="noopener">przeglądaj ikony ↗</a></label><input type="text" name="icon" value="${esc(v.icon)}">
  <label class="c"><input type="checkbox" name="linkable" ${v.linkable?'checked':''}> Klikalny link</label>
  <label class="c"><input type="checkbox" name="hidden" ${v.hidden?'checked':''}> Ukryj na dashboardzie</label>
- ${custom?'':`<div class="lbl" style="margin-top:8px">Z Dockhand: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>`}
- <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="b p">${x?'Zapisz':'Dodaj'}</button>${x&&!custom?'<button type="button" class="b" id="lkreset">Przywróć z Dockhand</button>':''}${x&&custom?'<button type="button" class="b" id="lkdel" style="color:#c33">Usuń kafelek</button>':''}<span style="flex:1"></span><button type="button" class="b" id="lkcancel">Anuluj</button></div></form>`;
+ ${custom?'':`<div class="lbl" style="margin-top:8px">Z ${(x.key||'').startsWith('proxmox|')?'Proxmox':'Dockhand'}: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>`}
+ <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="b p">${x?'Zapisz':'Dodaj'}</button>${x&&!custom?'<button type="button" class="b" id="lkreset">Przywróć z ${(x.key||'').startsWith('proxmox|')?'Proxmox':'Dockhand'}</button>':''}${x&&custom?'<button type="button" class="b" id="lkdel" style="color:#c33">Usuń kafelek</button>':''}<span style="flex:1"></span><button type="button" class="b" id="lkcancel">Anuluj</button></div></form>`;
  const f=$('#lkf'), sel=$('#lkcat'), nw=$('#lkcatnew');
  sel.onchange=()=>{const isNew=sel.value=='__new';nw.style.display=isNew?'block':'none';if(isNew)nw.focus()};
  $('#lkcancel').onclick=()=>$('#dlg').close();

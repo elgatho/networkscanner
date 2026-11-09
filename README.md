@@ -42,7 +42,9 @@ Update: `git pull; docker compose up -d --build` (data lives in volume `scanner-
 ## Dashboard (first tab)
 
 - **Proxmox overview**: nodes online, VMs/LXC running, CPU, RAM and disk per cluster and per node (from `/cluster/resources`).
-- **Services**: one tile per Docker container from Dockhand, grouped by category, with icon, description and link, and a search box.
+- **Services**: one tile per Docker container from Dockhand and one per Proxmox VM and LXC, grouped by category, with icon, description and link, and a search box.
+  Proxmox guest tiles follow the local Proxmox snapshot on every load (no extra API call), so a DHCP address change shows up without refreshing. Link: `dashboard.url` if set, otherwise the first IPv4 of the guest on `dashboard.port` (default 80). Guests without an address get a tile without a link.
+  Labels for a VM or LXC are lines in its Notes (Options → Notes), e.g. `dashboard.url: https://jellyfin.lan` or `dashboard.port: 8096`; same keys as for containers.
   Details (IP, ports, labels) are read from Dockhand only when a container first appears, or on **Settings → Dashboard → Odśwież teraz**. Hand edits are kept on refresh.
   Default link: a container with its own LAN address (macvlan, same /24 as its Docker host) links to that address on port 80 (https if only 443 is exposed); otherwise the published port on the Docker host; otherwise the host on port 80. DNS names from AdGuard rewrites are shown as IPs.
   **Edit tiles** (✎ Edytuj kafelki): change name, category, description, link, icon, make a tile non-clickable, or hide it. "Przywróć z Dockhand" drops the edits.

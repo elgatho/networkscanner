@@ -323,6 +323,47 @@ def test_build_proxmox_stats_and_node_excluded_from_devices(s):
     assert all(x["name"] != "pve1" for x in ipm.summary(s).get("no_ip", []))
 
 
+def test_proxmox_notes_dashboard_labels_parsed():
+    from app.proxmox_connector import dashboard_labels
+    notes = "Jellyfin server\ndashboard.url: https://jf.lan\n  dashboard.port = 8096\nDashboard.Hide: true\nnot a label"
+    assert dashboard_labels(notes) == {"dashboard.url": "https://jf.lan", "dashboard.port": "8096",
+                                       "dashboard.hide": "true"}
+    assert dashboard_labels(None) == {}
+
+
+def test_proxmox_guests_become_tiles_like_containers(s, monkeypatch):
+    monkeypatch.setattr(services.icons, "localize", lambda u: u or "")
+    labels = {"dashboard.description": "Media", "dashboard.port": "8096"}
+    R(s, "192.168.1.10", "proxmox", "jellyfin", "aa:aa:aa:aa:aa:10", kind="vm", state="running",
+      extra={"vmid": 100, "node": "pve1", "cluster": "home", "labels": labels})
+    R(s, "192.168.1.10", "proxmox", "jellyfin", "aa:aa:aa:aa:aa:10", kind="vm", state="running",
+      extra={"vmid": 100, "node": "pve1", "cluster": "home", "labels": labels})  # second NIC record
+    R(s, "10.0.0.5", "proxmox", "pihole", None, kind="lxc", state="stopped",
+      extra={"ctid": 101, "node": "pve2", "labels": {"dashboard.url": "http://pihole.lan/admin"}})
+    R(s, None, "proxmox", "noip", None, kind="lxc", state="running", extra={"ctid": 102, "node": "pve2"})
+    by = {x["name"]: x for x in services.build_services(s)}
+    assert sorted(by) == ["jellyfin", "noip", "pihole"]  # one tile per guest, no-IP guests included
+    jf = by["jellyfin"]
+    assert jf["key"] == "proxmox|home|vm|100" and jf["environment"] == "home"
+    assert jf["url"] == "http://192.168.1.10:8096" and jf["description"] == "Media" and jf["linkable"]
+    assert by["pihole"]["url"] == "http://pihole.lan/admin" and by["pihole"]["state"] == "stopped"
+    assert by["pihole"]["description"] == "LXC · pve2"
+    assert by["noip"]["url"] == "" and by["noip"]["linkable"] is False
+
+
+def test_proxmox_tile_follows_snapshot_and_keeps_edits(s, monkeypatch):
+    monkeypatch.setattr(services.icons, "localize", lambda u: u or "")
+    R(s, "192.168.1.20", "proxmox", "web", "aa:aa:aa:aa:aa:20", kind="vm", state="running", extra={"vmid": 7})
+    first = {x["name"]: x for x in services.build_services(s)}["web"]
+    services.set_override(s, first["key"], {"category": "Custom"})
+    # DHCP moved the guest: the next load picks up the new address without a manual refresh
+    s.query(SourceRecord).filter(SourceRecord.source == "proxmox").delete()
+    s.commit()
+    R(s, "192.168.1.99", "proxmox", "web", "aa:aa:aa:aa:aa:20", kind="vm", state="running", extra={"vmid": 7})
+    x = {y["name"]: y for y in services.build_services(s)}["web"]
+    assert x["url"] == "http://192.168.1.99:80" and x["category"] == "Custom" and x["edited"] is True
+
+
 def test_app_version_from_file():
     from pathlib import Path
     assert config.APP_VERSION == (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
