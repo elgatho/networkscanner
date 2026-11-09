@@ -13,11 +13,14 @@ Optional labels on the container override the defaults:
   dashboard.icon         dashboard-icons slug (e.g. jellyfin) or a full image URL (default: from image name)
   dashboard.hide         "true" to hide the tile (still listed in edit mode)
 
+Hand-made tiles (not from any container) are rows with key "custom|<uuid>" and no `auto` part.
+
 Default link: a container with its own LAN address (macvlan) links to that address on port 80, or https if
 only 443 is exposed; otherwise the published port on the Docker host; otherwise the host on port 80.
 """
 import ipaddress
 import logging
+import uuid
 
 from sqlalchemy import select
 
@@ -29,6 +32,7 @@ log = logging.getLogger(__name__)
 ICON_CDN = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/"
 DEFAULT_CATEGORY = "Other"
 EDITABLE = ("name", "category", "description", "url", "icon", "hidden", "linkable")
+CUSTOM_PREFIX = "custom|"
 
 # category -> image/name keywords (matched as substrings of the lowercased image and container name)
 CATEGORY_RULES = [
@@ -233,11 +237,8 @@ def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
     return set(groups)
 
 
-def set_override(s, key: str, data: dict) -> dict:
-    """Store the hand-edited fields of a tile (fields equal to the auto value are not sent). Empty -> reset."""
-    row = s.get(ServiceLink, key)
-    if row is None:
-        raise LookupError(key)
+def _clean(data: dict) -> dict:
+    """Keep only editable fields that were sent and are not empty; validates the URL."""
     clean = {}
     for k in EDITABLE:
         if k not in data or data[k] is None:
@@ -250,16 +251,50 @@ def set_override(s, key: str, data: dict) -> dict:
                 clean[k] = v
     if clean.get("url") and not clean["url"].startswith(("http://", "https://")):
         raise ValueError("URL must start with http:// or https://")
+    return clean
+
+
+def set_override(s, key: str, data: dict) -> dict:
+    """Store the hand-edited fields of a tile (fields equal to the auto value are not sent). Empty -> reset."""
+    row = s.get(ServiceLink, key)
+    if row is None:
+        raise LookupError(key)
+    clean = _clean(data)
+    if key.startswith(CUSTOM_PREFIX) and not clean.get("name"):
+        raise ValueError("Podaj nazwę kafelka")  # a hand-made tile has no container data to fall back to
     row.override = clean
     s.commit()
     return clean
+
+
+def add_custom(s, data: dict) -> str:
+    """Create a hand-made tile (not tied to any container). Returns its key."""
+    clean = _clean(data)
+    if not clean.get("name"):
+        raise ValueError("Podaj nazwę kafelka")
+    key = CUSTOM_PREFIX + uuid.uuid4().hex
+    s.add(ServiceLink(key=key, auto={}, override=clean, seen_at=utcnow()))
+    s.commit()
+    return key
+
+
+def delete_custom(s, key: str) -> None:
+    """Remove a hand-made tile. Container tiles only come back from Dockhand, so they cannot be deleted."""
+    if not key.startswith(CUSTOM_PREFIX):
+        raise ValueError("Only hand-made tiles can be deleted")
+    row = s.get(ServiceLink, key)
+    if row is None:
+        raise LookupError(key)
+    s.delete(row)
+    s.commit()
 
 
 def build_services(s, st: dict | None = None) -> list[dict]:
     current = sync_links(s, st)
     out = []
     for row in s.scalars(select(ServiceLink)):
-        if row.key not in current:  # container no longer present in Dockhand
+        custom = row.key.startswith(CUSTOM_PREFIX)
+        if not custom and row.key not in current:  # container no longer present in Dockhand
             continue
         auto, ov = row.auto or {}, row.override or {}
         m = {**auto, **ov}
@@ -269,7 +304,8 @@ def build_services(s, st: dict | None = None) -> list[dict]:
             "description": m.get("description") or "", "url": url,
             "linkable": bool(m.get("linkable", True)) and bool(url),
             "icon": m.get("icon") or "", "hidden": bool(m.get("hidden")), "state": m.get("state") or "",
-            "environment": m.get("environment") or "", "host": m.get("host") or "", "edited": bool(ov),
+            "environment": m.get("environment") or "", "host": m.get("host") or "",
+            "edited": bool(ov) and not custom, "custom": custom,
             "auto": {k: auto.get(k) for k in EDITABLE},
         })
     out.sort(key=lambda x: (x["category"].lower(), x["name"].lower()))

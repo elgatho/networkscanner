@@ -63,9 +63,10 @@ async function render(force){document.querySelectorAll('nav button').forEach(b=>
 const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
 async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
- if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"><button class="b" id="hedit"></button></div><div id="hn"></div><div id="hg"></div>';
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"><button class="b" id="hadd">+ Dodaj kafelek</button><button class="b" id="hedit"></button></div><div id="hn"></div><div id="hg"></div>';
   $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
   $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
+  $('#hadd').onclick=()=>tileDialog(null);
   $('#hedit').onclick=()=>{EDIT=!EDIT;homeGrid()}}
  homeStats(); homeGrid()}
 function searchOn(){return !!(HOME.search&&HOME.search.enabled&&HOME.search.url)}
@@ -97,29 +98,43 @@ function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
   return `<div class="cat"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles">${items.map(x=>{const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
    const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
    const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
-    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="ds">${esc(x.description)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
+    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
    if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj">${inner}</div>`;
    if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
    return `<a class="${cls}" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}).join('')}</div>`}).join('')}
-function editLink(k){const x=HOME.services.find(s=>s.key==k);if(!x)return;const a=x.auto||{};
- const cats=[...new Set(HOME.services.map(s=>s.category))].sort();
- $('#dlg').innerHTML=`<form id="lkf" class="f" style="min-width:min(520px,88vw)"><b>${esc(x.name)}</b> <span class="lbl">${esc(x.host)}</span>
- <label>Nazwa</label><input type="text" name="name" value="${esc(x.name)}">
- <label>Kategoria</label><input type="text" name="category" list="catlist" value="${esc(x.category)}"><datalist id="catlist">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
- <label>Opis</label><input type="text" name="description" value="${esc(x.description)}">
- <label>Link</label><input type="text" name="url" value="${esc(x.url)}" placeholder="http://…">
- <label>Ikona (slug dashboard-icons lub URL)</label><input type="text" name="icon" value="${esc(x.icon)}">
- <label class="c"><input type="checkbox" name="linkable" ${x.linkable?'checked':''}> Klikalny link</label>
- <label class="c"><input type="checkbox" name="hidden" ${x.hidden?'checked':''}> Ukryj na dashboardzie</label>
- <div class="lbl" style="margin-top:8px">Z Dockhand: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>
- <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="b p">Zapisz</button><button type="button" class="b" id="lkreset">Przywróć z Dockhand</button><span style="flex:1"></span><button type="button" class="b" id="lkcancel">Anuluj</button></div></form>`;
- const f=$('#lkf');
+function editLink(k){const x=HOME.services.find(s=>s.key==k);if(!x)return;tileDialog(x)}
+// Dialog for a tile: x = existing tile (container or hand-made), null = new hand-made tile.
+function tileDialog(x){const custom=!x||x.custom, a=(x&&!x.custom&&x.auto)||{}, v=x||{name:'',category:'Other',description:'',url:'',icon:'',linkable:true,hidden:false};
+ const cats=[...new Set([...HOME.services.map(s=>s.category),v.category,'Other'].filter(Boolean))].sort((p,q)=>p.localeCompare(q,'pl'));
+ const catSel=`<select name="category" id="lkcat">${cats.map(c=>`<option value="${esc(c)}"${c==v.category?' selected':''}>${esc(c)}</option>`).join('')}<option value="__new">+ nowa kategoria…</option></select>
+ <input type="text" name="category_new" id="lkcatnew" placeholder="Nazwa nowej kategorii" style="display:none;margin-top:6px">`;
+ $('#dlg').innerHTML=`<form id="lkf" class="f" style="min-width:min(520px,88vw)"><b>${x?esc(x.name):'Nowy kafelek'}</b> ${x&&!custom?`<span class="lbl">${esc(x.host)}</span>`:''}
+ <label>Nazwa${custom?' *':''}</label><input type="text" name="name" value="${esc(v.name)}" ${custom?'required':''}>
+ <label>Kategoria</label>${catSel}
+ <label>Opis</label><input type="text" name="description" value="${esc(v.description)}">
+ <label>Link</label><input type="text" name="url" value="${esc(v.url)}" placeholder="http://…">
+ <label>Ikona (slug dashboard-icons lub URL)</label><input type="text" name="icon" value="${esc(v.icon)}">
+ <label class="c"><input type="checkbox" name="linkable" ${v.linkable?'checked':''}> Klikalny link</label>
+ <label class="c"><input type="checkbox" name="hidden" ${v.hidden?'checked':''}> Ukryj na dashboardzie</label>
+ ${custom?'':`<div class="lbl" style="margin-top:8px">Z Dockhand: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>`}
+ <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="b p">${x?'Zapisz':'Dodaj'}</button>${x&&!custom?'<button type="button" class="b" id="lkreset">Przywróć z Dockhand</button>':''}${x&&custom?'<button type="button" class="b" id="lkdel" style="color:#c33">Usuń kafelek</button>':''}<span style="flex:1"></span><button type="button" class="b" id="lkcancel">Anuluj</button></div></form>`;
+ const f=$('#lkf'), sel=$('#lkcat'), nw=$('#lkcatnew');
+ sel.onchange=()=>{const isNew=sel.value=='__new';nw.style.display=isNew?'block':'none';if(isNew)nw.focus()};
  $('#lkcancel').onclick=()=>$('#dlg').close();
- $('#lkreset').onclick=async()=>{try{await api('/dashboard/links/'+encodeURIComponent(k),{method:'PUT',body:JSON.stringify({reset:true})});$('#dlg').close();toast('Przywrócono');homeView(true)}catch(e){toast(e.message)}};
- f.onsubmit=async e=>{e.preventDefault();const d=new FormData(f),body={};
-  for(const key of ['name','category','description','url','icon']){const v=(d.get(key)||'').trim();body[key]=v===String(a[key]??'').trim()?null:v}
-  for(const key of ['linkable','hidden']){const v=!!d.get(key);body[key]=v===!!a[key]?null:v}
-  try{await api('/dashboard/links/'+encodeURIComponent(k),{method:'PUT',body:JSON.stringify(body)});$('#dlg').close();toast('Zapisano');homeView(true)}catch(err){toast(err.message)}};
+ const reset=$('#lkreset'); if(reset)reset.onclick=async()=>{try{await api('/dashboard/links/'+encodeURIComponent(x.key),{method:'PUT',body:JSON.stringify({reset:true})});$('#dlg').close();toast('Przywrócono');homeView(true)}catch(e){toast(e.message)}};
+ const del=$('#lkdel'); if(del)del.onclick=async()=>{if(!confirm('Usunąć kafelek „'+x.name+'”?'))return;try{await api('/dashboard/links/'+encodeURIComponent(x.key),{method:'DELETE'});$('#dlg').close();toast('Usunięto');homeView(true)}catch(e){toast(e.message)}};
+ f.onsubmit=async e=>{e.preventDefault();const d=new FormData(f);
+  let cat=d.get('category')=='__new'?(d.get('category_new')||'').trim():d.get('category');
+  if(!cat){toast('Podaj nazwę kategorii');return}
+  const vals={name:(d.get('name')||'').trim(),category:cat,description:(d.get('description')||'').trim(),url:(d.get('url')||'').trim(),icon:(d.get('icon')||'').trim()};
+  const linkable=!!d.get('linkable'), hidden=!!d.get('hidden');
+  let body;
+  if(custom){body={...vals,linkable,hidden}}  // hand-made tiles store every field: nothing to fall back to
+  else{body={};for(const key of ['name','category','description','url','icon']){body[key]=vals[key]===String(a[key]??'').trim()?null:vals[key]}
+   body.linkable=linkable===!!a.linkable?null:linkable; body.hidden=hidden===!!a.hidden?null:hidden}
+  try{if(x)await api('/dashboard/links/'+encodeURIComponent(x.key),{method:'PUT',body:JSON.stringify(body)});
+   else await api('/dashboard/links',{method:'POST',body:JSON.stringify(body)});
+   $('#dlg').close();toast(x?'Zapisano':'Dodano kafelek');homeView(true)}catch(err){toast(err.message)}};
  $('#dlg').showModal()}
 function ffCard(f,main){const w=(f.warnings||[]).map(x=>`<div class="warn">⚠ ${esc(x)}</div>`).join('');
  return `<div class="card ${main?'main':''}"><div class="lbl">${main?'FIRST AVAILABLE IP':'First available'} · ${esc(f.subnet)}</div>

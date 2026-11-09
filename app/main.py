@@ -171,6 +171,27 @@ def edit_link(key: str, body: LinkIn, s=Depends(session)):
     return {"ok": True}
 
 
+@app.post("/api/dashboard/links")
+def add_link(body: LinkIn, s=Depends(session)):
+    """Create a hand-made tile."""
+    try:
+        key = services.add_custom(s, body.model_dump(exclude={"reset"}, exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True, "key": key}
+
+
+@app.delete("/api/dashboard/links/{key:path}")
+def delete_link(key: str, s=Depends(session)):
+    try:
+        services.delete_custom(s, key)
+    except LookupError:
+        _404()
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
 @app.get("/api/ips")
 def get_ips(s=Depends(session)):
     entries, _ = ipm.build_inventory(s)

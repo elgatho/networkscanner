@@ -399,3 +399,43 @@ def test_lan_ip_helper():
     # container on another LAN/VLAN keeps its own address; Docker bridge and host address are skipped
     assert _lan_ip("192.168.20.59", ["172.18.0.3", "192.168.0.57"]) == "192.168.0.57"
     assert _lan_ip("192.168.20.59", ["192.168.20.59"]) is None
+
+
+def test_custom_tiles_add_edit_delete_and_survive_refresh(s):
+    from app.services import add_custom, delete_custom, set_override
+    with pytest.raises(ValueError):
+        add_custom(s, {"name": "  ", "url": "https://x"})  # name required
+    with pytest.raises(ValueError):
+        add_custom(s, {"name": "Bad", "url": "ftp://x"})  # URL must be http(s)
+    key = add_custom(s, {"name": "Router", "category": "Network", "url": "http://192.168.1.1", "linkable": True})
+    assert key.startswith("custom|")
+    x = {y["name"]: y for y in services.build_services(s)}["Router"]
+    assert x["custom"] is True and x["edited"] is False and x["category"] == "Network" and x["linkable"]
+    # refresh must not drop hand-made tiles even though Dockhand does not know them
+    services.sync_links(s, refresh=True)
+    assert "Router" in {y["name"] for y in services.build_services(s)}
+    with pytest.raises(ValueError):  # cannot blank the name of a hand-made tile
+        set_override(s, key, {})
+    set_override(s, key, {"name": "Router2", "category": "Network", "url": "http://192.168.1.1"})
+    assert "Router2" in {y["name"] for y in services.build_services(s)}
+    with pytest.raises(ValueError):  # container tiles are not deletable
+        delete_custom(s, "c1|x")
+    delete_custom(s, key)
+    assert "Router2" not in {y["name"] for y in services.build_services(s)}
+
+
+def test_custom_tile_api_routes(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main.scheduler.sched, "start", lambda: None)
+    monkeypatch.setattr(main.scheduler.sched, "shutdown", lambda **k: None)
+    monkeypatch.setattr(main.scheduler, "reschedule", lambda: None)
+    monkeypatch.setattr(main.dd, "refresh_source", lambda n: None)
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    with TestClient(main.app) as c:
+        r = c.post("/api/dashboard/links", json={"name": "NAS", "category": "Storage", "url": "http://nas.lan"})
+        assert r.status_code == 200 and r.json()["key"].startswith("custom|")
+        key = r.json()["key"]
+        assert c.post("/api/dashboard/links", json={"name": "", "url": "http://x"}).status_code == 422
+        assert c.delete("/api/dashboard/links/" + key).status_code == 200
+        assert c.delete("/api/dashboard/links/" + key).status_code == 404
+        assert c.delete("/api/dashboard/links/dockhand|c1").status_code == 422
