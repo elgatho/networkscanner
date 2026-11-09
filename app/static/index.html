@@ -50,7 +50,7 @@ async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Acces
  if(!r.ok) throw new Error(j.detail||r.statusText); return j}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 const ago=s=>{if(!s)return'never';const d=(Date.now()-new Date(s))/1000;return d<90?'just now':d<5400?Math.round(d/60)+' min ago':d<172800?Math.round(d/3600)+' h ago':Math.round(d/86400)+' d ago'};
-$('#nav').innerHTML=[['home','Dashboard'],['dash','IP Table'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
+$('#nav').innerHTML=[['home','Dashboard'],['dash','IP Network'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
 $('#nav').onclick=e=>{if(e.target.dataset.k){tab=e.target.dataset.k;render(true)}};
 async function load(){[D.sum,D.ips,D.subs,D.src]=await Promise.all([api('/summary'),api('/ips'),api('/subnets'),api('/sources')]);$('#upd').textContent='updated '+new Date().toLocaleTimeString()}
 async function render(force){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.k==tab));
