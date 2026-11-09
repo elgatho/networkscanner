@@ -2,19 +2,28 @@
 
 Self-hosted scanner that merges Dockhand, Proxmox VE, ESPHome and active network scans (nmap, arp-scan, `ip neigh`) into one inventory and recommends the **first available IP** per subnet. No MCP; direct REST APIs and system tools only. Read-only toward all external systems.
 
+## Screenshots
+Demo data with fictional hosts (`*.home.example`).
+
+| Dashboard | Edit mode | Mobile |
+|---|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Edit mode](docs/screenshots/dashboard-edit.png) | ![Mobile](docs/screenshots/dashboard-mobile.png) |
+
+Settings → HTTPS certificate card: ![HTTPS settings](docs/screenshots/settings-https.png)
+
 ## Docker image
-Published to GitHub Container Registry on every version tag (`v1.2.3`), built for amd64 and arm64:
+Published to GitHub Container Registry on every version tag (`1.8.0` or `v1.8.0`), built for amd64 and arm64:
 ```bash
-docker pull ghcr.io/elgatho/networkscanner:latest      # or a version, e.g. :1.0.0
+docker pull ghcr.io/elgatho/networkscanner:latest      # or a version, e.g. :1.8.0
 ```
-In `docker-compose.yml` use `image: ghcr.io/elgatho/networkscanner:1.0.0` instead of `build: .`.
+In `docker-compose.yml` use `image: ghcr.io/elgatho/networkscanner:1.8.0` instead of `build: .`.
 
 ## Install
 ```bash
-cp .env.example .env      # set PORT, optionally ACCESS_TOKEN
+cp .env.example .env      # set PORT, optionally ACCESS_TOKEN and HTTPS
 docker compose up -d --build
 ```
-Open `http://<host>:8080`. Then: **Subnets → Add subnet** (CIDR, gateway, VLAN, exclusions such as your DHCP pool), **Settings** to enter integration credentials and use *Test connection*.
+Open `http://<host>:8080` (or `https://` once a certificate is installed, see [HTTPS](#https)). Then: **Subnets → Add subnet** (CIDR, gateway, VLAN, exclusions such as your DHCP pool), **Settings** to enter integration credentials and use *Test connection*.
 
 Update: `git pull; docker compose up -d --build` (data lives in volume `scanner-data`).
 
@@ -48,9 +57,18 @@ Skips network/broadcast, gateway, all source IPs, manual reservations, exclusion
 ## Schedule
 Defaults: Dockhand 5 min, Proxmox 5, ESPHome 10, discovery 15, full scan 60 (per-subnet override). Editable in Settings; manual scans in the UI. One scan per subnet at a time. IPv6 ranges are not swept (known addresses + NDP only).
 
+## HTTPS
+The UI can be served over HTTPS with your own certificate. Upload it in **Settings → HTTPS — własny certyfikat**: paste the certificate (PEM, with the chain) and the private key (PEM, no passphrase). The app checks that the key matches the certificate, then stores both in `DATA_DIR/tls/` (`key.pem` with mode 0600). A restart is needed: the app then listens on HTTPS on the same `PORT`. *Usuń certyfikat* removes the files; the app returns to HTTP after a restart.
+
+Environment variable `HTTPS` (in `.env` or compose):
+- `auto` (default): HTTPS when a certificate is installed, HTTP otherwise.
+- `0` / `off` / `http`: always HTTP, even with a certificate installed.
+- `1` / `on` / `https`: certificate required; start fails with an error if it is missing.
+
+There is no HTTP→HTTPS redirect (one protocol per port). The Docker healthcheck follows the same switch.
+
 ## Settings password, conflicts, webhook, CSV
-- **HTTPS**: Settings → *HTTPS — własny certyfikat*: wklej certyfikat (PEM, z łańcuchem) i klucz prywatny (PEM, bez hasła). Pliki trafiają do `DATA_DIR/tls/` (klucz 0600). Po restarcie kontenera aplikacja działa na HTTPS na tym samym porcie. Usunięcie certyfikatu wraca do HTTP po restarcie. Zmienna `HTTPS` steruje trybem: `auto` (domyślnie, HTTPS gdy jest certyfikat), `0`/`http` (zawsze HTTP), `1`/`https` (wymagany certyfikat, inaczej start się nie uda).
-- **Settings password**: Settings (and `/api/settings`, `/api/test/*`, `/api/records`) require login once a password is set. Set it in Settings → *Settings password*, or fix it with `SETTINGS_PASSWORD` in `.env` (then it cannot be changed in the UI). Until one is set the page is open — set it on first run. Stored as PBKDF2-SHA256 hash; session cookie is HttpOnly/SameSite=Strict (12 h); 5 failed logins → 5 min lock. Serve over HTTPS (reverse proxy) if the network is not trusted.
+- **Settings password**: Settings (and `/api/settings`, `/api/test/*`, `/api/records`) require login once a password is set. Set it in Settings → *Settings password*, or fix it with `SETTINGS_PASSWORD` in `.env` (then it cannot be changed in the UI). Until one is set the page is open — set it on first run. Stored as PBKDF2-SHA256 hash; session cookie is HttpOnly/SameSite=Strict (12 h); 5 failed logins → 5 min lock. Use HTTPS (above) or a reverse proxy if the network is not trusted.
 - **Silencing conflicts**: click *Ignore* next to a conflict on the dashboard (creates a rule for that IP; removable in Settings). Containers in `host` network mode no longer cause conflicts (option *Ignore conflicts caused by host-network containers*).
 - **Webhook**: JSON `POST {event,title,message,ip,mac,timestamp,source}`; optional `Authorization` header. Events: new_host, mac_changed, ip_changed, online, offline, conflict, source_down. First run only records the current state (no flood). Max 20 messages per minute; failed delivery is retried.
 - **CSV export**: *Export CSV* on the dashboard exports the currently filtered table (also `GET /api/export/ips.csv?q=&subnet=&vlan=&status=&source=`); cells starting with `= + - @` are prefixed with `'` to prevent spreadsheet formula injection.
@@ -59,5 +77,5 @@ Defaults: Dockhand 5 min, Proxmox 5, ESPHome 10, discovery 15, full scan 60 (per
 `pip install -r requirements.txt pytest && pytest -q`
 
 ## Verification status
-Verified: unit tests (30 pass); real full scan of a /24 (52 hosts found, first-free computed); API and UI served.
-**Not verified** (no credentials / no Docker access in the build environment): OPNsense and UniFi against live servers (tested only against recorded-shape HTTP responses), webhook delivery to a real receiver, Dockhand and Proxmox against live servers, ESPHome native API, arp-scan, Docker image build and container restart persistence (persistence is unit-tested at DB level). Run these on your side with *Test connection*.
+Verified: unit tests (54 pass, including the HTTPS certificate checks and the `HTTPS` switch); real full scan of a /24 (52 hosts found, first-free computed); API and UI served; the screenshots above were taken from a local run with demo data.
+**Not verified** (no credentials / no Docker access in the build environment): OPNsense and UniFi against live servers (tested only against recorded-shape HTTP responses), webhook delivery to a real receiver, Dockhand and Proxmox against live servers, ESPHome native API, arp-scan, Docker image build, container restart persistence (persistence is unit-tested at DB level), and HTTPS served by the running container with a real certificate. Run these on your side with *Test connection* and by opening the UI over HTTPS.
