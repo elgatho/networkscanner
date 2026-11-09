@@ -284,6 +284,11 @@ def test_build_proxmox_stats_and_node_excluded_from_devices(s):
     assert all(x["name"] != "pve1" for x in ipm.summary(s).get("no_ip", []))
 
 
+def test_app_version_from_file():
+    from pathlib import Path
+    assert config.APP_VERSION == (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+
+
 def test_dashboard_api_route(tmp_path, monkeypatch):
     from app import main
     monkeypatch.setattr(main.scheduler.sched, "start", lambda: None)
