@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 
 import csv
 import io
-from . import auth as authmod, config, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler, services
+from . import auth as authmod, config, icons, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler, services
 from .database import ConflictRule, Event, Reservation, ScanResult, ScanRun, SourceRecord, SourceStatus, Subnet
 from .util import iso, norm_ip, norm_mac
 
@@ -502,6 +502,7 @@ def export_csv(q: str = "", subnet: str = "", vlan: str = "", status: str = "", 
 
 
 app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+app.mount("/icons", StaticFiles(directory=icons.ICON_DIR), name="icons")  # cached tile icons
 
 
 @app.get("/")

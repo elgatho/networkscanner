@@ -25,6 +25,7 @@ import uuid
 from sqlalchemy import select
 
 from .database import ServiceLink, SourceRecord, SourceStatus
+from . import icons
 from .util import iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -228,6 +229,7 @@ def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
     now = utcnow()
     for key in targets:
         auto = auto_fields(groups[key], names, dns)
+        auto["icon"] = icons.localize(auto["icon"])  # download once; the tile keeps the local /icons/ path
         row = rows.get(key)
         if row is None:
             s.add(ServiceLink(key=key, auto=auto, override={}, seen_at=now))
@@ -235,6 +237,13 @@ def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
             row.auto, row.seen_at = auto, now
     s.commit()
     return set(groups)
+
+
+def _icon_value(v: str) -> str:
+    """Slug or URL typed by the user -> local /icons/ path (already local values are kept)."""
+    if not v or v.startswith("/"):
+        return v
+    return icons.localize(icon_url(v, "", ""))
 
 
 def _clean(data: dict) -> dict:
@@ -247,6 +256,8 @@ def _clean(data: dict) -> dict:
             clean[k] = bool(data[k])
         else:
             v = str(data[k]).strip()
+            if k == "icon":
+                v = _icon_value(v)
             if v:
                 clean[k] = v
     if clean.get("url") and not clean["url"].startswith(("http://", "https://")):

@@ -439,3 +439,40 @@ def test_custom_tile_api_routes(tmp_path, monkeypatch):
         assert c.delete("/api/dashboard/links/" + key).status_code == 200
         assert c.delete("/api/dashboard/links/" + key).status_code == 404
         assert c.delete("/api/dashboard/links/dockhand|c1").status_code == 422
+
+
+def test_icons_download_once_and_serve_local_path(tmp_path, monkeypatch):
+    from app import icons
+    monkeypatch.setattr(icons, "ICON_DIR", tmp_path)
+    calls = []
+
+    def fake(url):
+        calls.append(url)
+        return b"\x89PNG fake", ".png"
+    monkeypatch.setattr(icons, "_download", fake)
+    url = "https://cdn.example/icons/jellyfin.png"
+    local = icons.localize(url)
+    assert local.startswith("/icons/") and local.endswith(".png")
+    assert (tmp_path / local.rsplit("/", 1)[1]).read_bytes() == b"\x89PNG fake"
+    assert icons.localize(url) == local and len(calls) == 1  # second time comes from disk
+    assert icons.localize("/icons/x.png") == "/icons/x.png" and icons.localize("") == ""  # not remote: unchanged
+
+
+def test_failed_icon_download_keeps_remote_url(tmp_path, monkeypatch):
+    from app import icons
+    monkeypatch.setattr(icons, "ICON_DIR", tmp_path)
+    monkeypatch.setattr(icons, "_download", lambda url: None)
+    assert icons.localize("https://cdn.example/x.png") == "https://cdn.example/x.png"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_custom_tile_icon_slug_is_cached_locally(s, tmp_path, monkeypatch):
+    from app import icons
+    from app.database import ServiceLink
+    from app.services import add_custom
+    monkeypatch.setattr(icons, "ICON_DIR", tmp_path)
+    monkeypatch.setattr(icons, "_download", lambda url: (b"<svg/>", ".svg"))
+    key = add_custom(s, {"name": "NAS", "icon": "synology"})
+    row = s.get(ServiceLink, key)
+    assert row.override["icon"].startswith("/icons/") and row.override["icon"].endswith(".svg")
+    assert {x["name"]: x for x in services.build_services(s)}["NAS"]["icon"] == row.override["icon"]
