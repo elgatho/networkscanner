@@ -202,7 +202,8 @@ def first_free(s, sn, entries=None, now=None, st=None):
         warnings.append("Last full scan is stale or failed - availability not verified.")
     if sn.last_full_scan_at and not sn.l2:
         warnings.append("No ARP/NDP evidence (subnet is not on the scanner's L2 segment): ICMP/TCP probes only.")
-    enabled = {"dockhand": st["dockhand_enabled"], "proxmox": st["proxmox_enabled"], "esphome": st["esphome_enabled"]}
+    enabled = {"dockhand": st["dockhand_enabled"], "proxmox": st["proxmox_enabled"], "esphome": st["esphome_enabled"],
+               "adguard": st["adguard_enabled"]}
     for stt in s.scalars(select(SourceStatus)):
         if enabled.get(stt.source) and not stt.ok:
             failing.append(stt.source)

@@ -315,3 +315,40 @@ def test_dashboard_api_route(tmp_path, monkeypatch):
         body = r.json()
         assert body["proxmox"]["configured"] is False
         assert body["services"][0]["name"] == "jellyfin"
+
+
+def test_adguard_rewrites_become_records():
+    import httpx
+    from app.adguard_connector import AdGuardConnector
+    from app.config import DEFAULTS
+
+    cfg = dict(DEFAULTS, adguard_url="http://adguard:3000", adguard_username="u", adguard_password="p")
+    conn = AdGuardConnector(cfg)
+    rows = [{"domain": "nas.lan.", "answer": "192.168.20.5"},
+            {"domain": "*.home", "answer": "192.168.20.6"},
+            {"domain": "alias.lan", "answer": "nas.lan"},      # CNAME-like answer -> skipped
+            {"domain": "", "answer": "192.168.20.7"}]           # no domain -> skipped
+
+    def handler(request):
+        assert request.headers["authorization"].startswith("Basic ")
+        if request.url.path == "/control/rewrite/list":
+            return httpx.Response(200, json=rows)
+        if request.url.path == "/control/status":
+            return httpx.Response(200, json={"version": "v0.107"})
+        return httpx.Response(404)
+
+    conn.c = httpx.Client(base_url="http://adguard:3000", auth=("u", "p"), transport=httpx.MockTransport(handler))
+    recs = conn.fetch()
+    assert [(r["name"], r["ip"], r["kind"]) for r in recs] == [
+        ("nas.lan", "192.168.20.5", "dns-rewrite"), ("*.home", "192.168.20.6", "dns-rewrite")]
+    assert "4 DNS rewrite" in conn.test()["message"]
+
+
+def test_dashboard_links_use_ip_from_dns_rewrites():
+    from app.services import _ip_url, _service_url
+    names = {"nas.lan": "192.168.20.5", "jellyfin.lan": "192.168.20.9"}
+    assert _ip_url("https://jellyfin.lan:8096/web", names) == "https://192.168.20.9:8096/web"
+    assert _ip_url("http://unknown.lan:80", names) == "http://unknown.lan:80"
+    assert _ip_url("http://10.0.0.1:80", names) == "http://10.0.0.1:80"
+    assert _service_url({"env_host": "nas.lan", "ports": [{"public": 8080}]}, {}, names) == "http://192.168.20.5:8080"
+    assert _service_url({"env_host": "nas.lan"}, {"dashboard.url": "http://nas.lan:3000"}, names) == "http://192.168.20.5:3000"

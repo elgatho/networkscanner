@@ -10,6 +10,9 @@ Optional labels on the container (set in docker-compose / the container itself) 
   dashboard.icon         dashboard-icons slug (e.g. jellyfin) or a full image URL (default: from image name)
   dashboard.hide         "true" to hide the container from the dashboard
 """
+import ipaddress
+from urllib.parse import urlsplit, urlunsplit
+
 from sqlalchemy import select
 
 from .database import SourceRecord, SourceStatus
@@ -60,12 +63,54 @@ def icon_url(icon: str | None, image: str, name: str) -> str:
     return f"{ICON_CDN}{slug}.png" if slug else ""
 
 
-def _service_url(extra: dict, labels: dict) -> str | None:
+def name_to_ip_map(s) -> dict[str, str]:
+    """Hostname -> IP from AdGuard DNS rewrites (exact names only) and from scanner/integration records."""
+    out = {}
+    recs = s.scalars(select(SourceRecord).where(SourceRecord.ip.is_not(None)))
+    # AdGuard rewrites first (authoritative DNS), then other sources fill the gaps
+    for r in sorted(recs, key=lambda r: r.source != "adguard"):
+        if r.source == "dockhand" or not r.name or "*" in r.name:
+            continue
+        out.setdefault(r.name.lower().rstrip("."), r.ip)
+    return out
+
+
+def _resolve(host: str, names: dict[str, str]) -> str:
+    """Host as an IP literal. Names are matched to an IP via the map; unknown names stay as they are."""
+    if not host:
+        return host
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    ip = names.get(host.lower().rstrip("."))
+    return ip or host
+
+
+def _ip_url(url: str, names: dict[str, str]) -> str:
+    """Rewrite the host part of a link to its IP, keeping scheme, port and path."""
+    parts = urlsplit(url)
+    host = parts.hostname
+    if not host:
+        return url
+    ip = _resolve(host, names)
+    if ip == host:
+        return url
+    if ":" in ip:  # IPv6 literal needs brackets in a URL
+        ip = f"[{ip}]"
+    netloc = ip + (f":{parts.port}" if parts.port else "")
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def _service_url(extra: dict, labels: dict, names: dict[str, str] | None = None) -> str | None:
+    names = names or {}
     if labels.get("dashboard.url"):
-        return labels["dashboard.url"]
+        return _ip_url(labels["dashboard.url"], names)
     host = extra.get("env_host")
     if not host:
         return None
+    host = _resolve(host, names)
     if labels.get("dashboard.port"):  # explicit port chosen by the user
         return f"http://{host}:{labels['dashboard.port']}"
     for p in extra.get("ports") or []:
@@ -78,6 +123,7 @@ def _service_url(extra: dict, labels: dict) -> str | None:
 
 def build_services(s) -> list[dict]:
     seen, out = set(), []
+    names = name_to_ip_map(s)
     for r in s.scalars(select(SourceRecord).where(SourceRecord.source == "dockhand", SourceRecord.kind == "container")):
         extra = r.extra or {}
         cid = extra.get("container_id") or f"{r.name}"
@@ -87,7 +133,7 @@ def build_services(s) -> list[dict]:
         labels = extra.get("labels") or {}
         if str(labels.get("dashboard.hide", "")).lower() == "true":
             continue
-        url = _service_url(extra, labels)
+        url = _service_url(extra, labels, names)
         if not url:
             continue
         image = extra.get("image") or ""

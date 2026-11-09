@@ -11,15 +11,17 @@ from .dockhand_connector import DockhandConnector
 from .esphome_connector import ESPHomeConnector
 from .opnsense_connector import OPNsenseConnector
 from .unifi_connector import UniFiConnector
+from .adguard_connector import AdGuardConnector
 from .ip_manager import net_of
 from .proxmox_connector import ProxmoxConnector
 from .util import norm_ip, utcnow
 
 log = logging.getLogger(__name__)
 _locks: dict[int, threading.Lock] = {}
-_src_locks = {k: threading.Lock() for k in ("dockhand", "proxmox", "esphome", "opnsense", "unifi")}
+_src_locks = {k: threading.Lock() for k in ("dockhand", "proxmox", "esphome", "opnsense", "unifi", "adguard")}
 CONNECTORS = {"dockhand": DockhandConnector, "proxmox": ProxmoxConnector, "esphome": ESPHomeConnector,
-              "opnsense": OPNsenseConnector, "unifi": UniFiConnector}
+              "opnsense": OPNsenseConnector, "unifi": UniFiConnector,
+              "adguard": AdGuardConnector}
 
 
 def scan_running(subnet_id):

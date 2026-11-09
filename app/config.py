@@ -54,6 +54,14 @@ DEFAULTS = {
     "unifi_ca_bundle": "",
     "unifi_fingerprint": "",
     "unifi_interval": 5,
+    "adguard_enabled": False,
+    "adguard_url": "",
+    "adguard_username": "",
+    "adguard_password": "",
+    "adguard_verify_tls": True,
+    "adguard_ca_bundle": "",
+    "adguard_fingerprint": "",
+    "adguard_interval": 5,
     "ignore_host_mode_conflicts": True,
     "webhook_enabled": False,
     "webhook_url": "",
@@ -72,7 +80,7 @@ DEFAULTS = {
 }
 SECRETS = {"dockhand_token", "proxmox_token_secret", "esphome_dashboard_password",
            "esphome_noise_psk", "esphome_api_password", "opnsense_key", "opnsense_secret",
-           "unifi_api_key", "webhook_url", "webhook_auth_header"}
+           "unifi_api_key", "adguard_password", "webhook_url", "webhook_auth_header"}
 SETTINGS_PASSWORD = os.environ.get("SETTINGS_PASSWORD", "")  # optional; overrides the UI-managed password
 SESSION_HOURS = 12
-SOURCES = ("dockhand", "proxmox", "esphome", "opnsense", "unifi")
+SOURCES = ("dockhand", "proxmox", "esphome", "opnsense", "unifi", "adguard")
