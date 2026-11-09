@@ -85,6 +85,7 @@ async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')
  if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="ht"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hedit"></button><span style="flex:1"></span><button class="b" id="hadd">+ Dodaj kafelek</button></div>';
   $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
   $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
+  $('#hq').focus();  // cursor goes to the search box when the dashboard opens
   $('#hadd').onclick=()=>tileDialog(null);
   $('#hedit').onclick=()=>{EDIT=!EDIT;homeGrid()}}
  homeStats(); homeGrid()}
