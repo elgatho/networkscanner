@@ -264,12 +264,41 @@ def test_build_services_links_labels_and_hide(s):
     _container(s, "c4", "wiki", "bookstack", [], labels={"dashboard.url": "https://wiki.lan",
                                                          "dashboard.description": "Docs"})
     out = services.build_services(s)
-    names = [x["name"] for x in out]
-    assert names == ["jellyfin", "nas", "wiki"]  # db hidden, c1 deduped; nas (loopback only) falls back to :80
-    jelly = out[0]
-    assert jelly["url"] == "http://docker1.lan:8096" and jelly["category"] == "Media"
-    assert out[1]["url"] == "http://docker1.lan:80"
-    assert out[2]["url"] == "https://wiki.lan" and out[2]["description"] == "Docs"
+    by = {x["name"]: x for x in out}
+    assert sorted(by) == ["db", "jellyfin", "nas", "wiki"]  # c1 deduped; hidden tiles stay listed (edit mode)
+    assert by["db"]["hidden"] is True and by["jellyfin"]["hidden"] is False
+    jelly = by["jellyfin"]
+    assert jelly["url"] == "http://docker1.lan:8096" and jelly["category"] == "Media" and jelly["linkable"]
+    assert by["nas"]["url"] == "http://docker1.lan:80"  # loopback-only port: falls back to :80
+    assert by["wiki"]["url"] == "https://wiki.lan" and by["wiki"]["description"] == "Docs"
+
+
+def test_tile_overrides_survive_refresh_and_reset(s):
+    from app.services import set_override
+    _container(s, "c9", "radarr", "lscr.io/radarr", [{"ip": "0.0.0.0", "public": 7878, "private": 7878, "type": "tcp"}])
+    first = {x["name"]: x for x in services.build_services(s)}["radarr"]
+    assert first["category"] == "Media" and first["edited"] is False
+    key = first["key"]
+    set_override(s, key, {"category": "Custom", "hidden": True, "linkable": False})
+    s.query(SourceRecord).filter(SourceRecord.source == "dockhand").delete()  # Dockhand snapshot is replaced
+    s.commit()
+    _container(s, "c9", "radarr", "lscr.io/radarr", [{"ip": "0.0.0.0", "public": 9999, "private": 7878, "type": "tcp"}])
+    # refresh re-reads Dockhand (new port) but keeps the hand edits
+    services.sync_links(s, refresh=True)
+    x = {y["name"]: y for y in services.build_services(s)}["radarr"]
+    assert x["category"] == "Custom" and x["hidden"] is True and x["linkable"] is False and x["edited"] is True
+    assert x["auto"]["url"] == "http://docker1.lan:9999"
+    set_override(s, key, {})  # reset
+    x = {y["name"]: y for y in services.build_services(s)}["radarr"]
+    assert x["category"] == "Media" and x["url"] == "http://docker1.lan:9999" and x["edited"] is False
+
+
+def test_lan_container_links_to_its_own_address_on_80_or_443():
+    lan = ["192.168.20.26"]
+    assert services._service_url({"env_host": "192.168.20.56", "exposed": [80, 443]}, {}, {}, "192.168.20.26") == "http://192.168.20.26:80"
+    assert services._service_url({"env_host": "192.168.20.56", "exposed": [443]}, {}, {}, "192.168.20.26") == "https://192.168.20.26"
+    assert services._service_url({"env_host": "192.168.20.56", "exposed": [8080]}, {}, {}, "192.168.20.26") == "http://192.168.20.26:8080"
+    assert services._lan_ip("192.168.20.56", lan) == "192.168.20.26"
 
 
 def test_build_proxmox_stats_and_node_excluded_from_devices(s):
@@ -351,4 +380,15 @@ def test_dashboard_links_use_ip_from_dns_rewrites():
     assert _ip_url("http://unknown.lan:80", names) == "http://unknown.lan:80"
     assert _ip_url("http://10.0.0.1:80", names) == "http://10.0.0.1:80"
     assert _service_url({"env_host": "nas.lan", "ports": [{"public": 8080}]}, {}, names) == "http://192.168.20.5:8080"
+    # container with its own LAN address and no published port -> link to the container
+    assert _service_url({"env_host": "192.168.20.59"}, {}, names, "192.168.20.26") == "http://192.168.20.26:80"
+    # published port wins: keep the Docker host
+    assert _service_url({"env_host": "192.168.20.59", "ports": [{"public": 8096}]}, {}, names, "192.168.20.26") == "http://192.168.20.59:8096"
     assert _service_url({"env_host": "nas.lan"}, {"dashboard.url": "http://nas.lan:3000"}, names) == "http://192.168.20.5:3000"
+
+
+def test_lan_ip_helper():
+    from app.services import _lan_ip
+    assert _lan_ip("192.168.20.59", ["172.18.0.3", "192.168.20.26"]) == "192.168.20.26"
+    assert _lan_ip("192.168.20.59", ["172.18.0.3"]) is None
+    assert _lan_ip("nas.lan", ["192.168.20.26"]) is None
