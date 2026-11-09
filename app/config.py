@@ -79,6 +79,8 @@ DEFAULTS = {
     "free_after_hours": 168,
     "search_fallback_enabled": True,  # dashboard search with no match -> open SearXNG results
     "search_url": "http://search.lan",
+    "top_used_enabled": True,   # dashboard: row of the most opened tiles under the search bar
+    "top_used_count": 6,        # how many tiles that row shows (1-24)
 }
 SECRETS = {"dockhand_token", "proxmox_token_secret", "esphome_dashboard_password",
            "esphome_noise_psk", "esphome_api_password", "opnsense_key", "opnsense_secret",

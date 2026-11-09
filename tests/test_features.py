@@ -476,3 +476,35 @@ def test_custom_tile_icon_slug_is_cached_locally(s, tmp_path, monkeypatch):
     row = s.get(ServiceLink, key)
     assert row.override["icon"].startswith("/icons/") and row.override["icon"].endswith(".svg")
     assert {x["name"]: x for x in services.build_services(s)}["NAS"]["icon"] == row.override["icon"]
+
+
+def test_record_open_counts_clicks_and_feeds_top_used(s):
+    from app.services import add_custom, record_open
+    a = add_custom(s, {"name": "Alpha", "url": "http://a.lan"})
+    b = add_custom(s, {"name": "Beta", "url": "http://b.lan"})
+    assert record_open(s, a) == 1
+    assert record_open(s, a) == 2
+    assert record_open(s, b) == 1
+    with pytest.raises(LookupError):
+        record_open(s, "custom|nope")
+    uses = {x["name"]: x["uses"] for x in services.build_services(s)}
+    assert uses == {"Alpha": 2, "Beta": 1}
+    # top-used row: sorted by count, limited by the configured count
+    assert services.dashboard(s, {"top_used_enabled": True, "top_used_count": 1})["top_used"] == {"enabled": True, "count": 1}
+    assert services.dashboard(s, {"top_used_count": 999})["top_used"]["count"] == 24
+
+
+def test_open_route_and_delete_clears_count(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main.scheduler.sched, "start", lambda: None)
+    monkeypatch.setattr(main.scheduler.sched, "shutdown", lambda **k: None)
+    monkeypatch.setattr(main.scheduler, "reschedule", lambda: None)
+    monkeypatch.setattr(main.dd, "refresh_source", lambda n: None)
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    with TestClient(main.app) as c:
+        key = c.post("/api/dashboard/links", json={"name": "NAS", "url": "http://nas.lan"}).json()["key"]
+        assert c.post("/api/dashboard/open/" + key).json() == {"count": 1}
+        assert c.post("/api/dashboard/open/" + key).json() == {"count": 2}
+        assert c.post("/api/dashboard/open/custom|missing").status_code == 404
+        assert c.delete("/api/dashboard/links/" + key).status_code == 200
+        assert c.post("/api/dashboard/open/" + key).status_code == 404

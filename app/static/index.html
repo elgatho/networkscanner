@@ -53,6 +53,7 @@ body.mobile .bar-f{gap:6px}body.mobile .bar-f input{min-width:0!important}
 body.mobile th,body.mobile td{padding:5px 6px}body.mobile .scroll{max-height:none}
 body.mobile dialog{max-width:100%;width:100%;max-height:100%;height:100%;margin:0;border-radius:0;padding:12px}
 body.mobile input,body.mobile select,body.mobile textarea{font-size:16px}
+body.mobile .pvenodes{display:none}
 body.mobile #toast{bottom:76px;left:12px;right:12px;text-align:center}
 </style></head><body>
 <header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
@@ -81,7 +82,7 @@ async function render(force){document.querySelectorAll('nav button').forEach(b=>
 const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
 async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
- if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hedit"></button><span style="flex:1"></span><button class="b" id="hadd">+ Dodaj kafelek</button></div>';
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="ht"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hedit"></button><span style="flex:1"></span><button class="b" id="hadd">+ Dodaj kafelek</button></div>';
   $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
   $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
   $('#hadd').onclick=()=>tileDialog(null);
@@ -101,26 +102,34 @@ function homeStats(){const p=HOME.proxmox;let h;
   ${sub('CPU',cpu+(p.cores?` <span class="lbl">${p.cores} cores</span>`:''))}
   <div class="card"><div class="lbl">RAM</div><div class="num">${mp}%</div>${bar(mp)}<div class="lbl">${fmtB(p.mem_used)} / ${fmtB(p.mem_total)}</div></div>
   <div class="card"><div class="lbl">Disk</div><div class="num">${dp}%</div>${bar(dp)}<div class="lbl">${fmtB(p.disk_used)} / ${fmtB(p.disk_total)}</div></div></div>`;
-  if(p.nodes.length){h+=`<div class="card" style="margin-top:12px">${p.nodes.map(n=>{const m=pct(n.mem,n.maxmem),d=pct(n.disk,n.maxdisk);
+  if(p.nodes.length){h+=`<div class="card pvenodes" style="margin-top:12px">${p.nodes.map(n=>{const m=pct(n.mem,n.maxmem),d=pct(n.disk,n.maxdisk);
    return `<div class="node"><div><b>${esc(n.node)}</b><div class="${n.status=='online'?'ONLINE':'OFFLINE'}" style="font-size:12px">${esc(n.status)}${n.uptime?' · up '+Math.floor(n.uptime/86400)+'d':''}</div></div>
    <div class="grid g2" style="gap:8px"><div><span class="lbl">CPU ${Math.round((n.cpu||0)*100)}%</span>${bar(Math.round((n.cpu||0)*100))}</div><div><span class="lbl">RAM ${m}% · ${fmtB(n.mem)}/${fmtB(n.maxmem)}</span>${bar(m)}</div><div><span class="lbl">Disk ${d}%</span>${bar(d)}</div></div></div>`}).join('')}</div>`}
  }
  $('#hs').innerHTML=h}
+function tileHtml(x){const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
+ const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
+ const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
+    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
+ if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" draggable="true" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj (przeciągnij, aby zmienić kategorię)">${inner}</div>`;
+ if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
+ return `<a class="${cls}" data-k="${esc(x.key)}" onclick="recordOpen(this.dataset.k)" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}
+// "Najczęściej używane": tiles opened most often, shown under the search bar (not in edit mode).
+function topHtml(list){const t=HOME.top_used;if(!t||!t.enabled||EDIT)return'';
+ const top=list.filter(x=>x.uses>0&&x.linkable).sort((a,b)=>b.uses-a.uses||a.name.localeCompare(b.name)).slice(0,t.count);
+ if(!top.length)return'';
+ return `<div class="cat"><b>Najczęściej używane</b><span class="lbl">${top.length}</span></div><div class="tiles">${top.map(tileHtml).join('')}</div>`}
+function recordOpen(k){const x=HOME.services.find(s=>s.key==k);if(x)x.uses=(x.uses||0)+1;api('/dashboard/open/'+encodeURIComponent(k),{method:'POST'}).catch(()=>{})}
 function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
  $('#hedit').textContent=EDIT?'✓ Gotowe':'✎ Edytuj kafelki'; $('#hedit').classList.toggle('p',EDIT);
  $('#hadd').style.display=EDIT?'':'none';
+ $('#ht').innerHTML=topHtml(list);
  if(!HOME.services.length){$('#hn').innerHTML='';$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem lub z adresem LAN pojawią się tutaj (albo ustaw label <code>dashboard.url</code>).</div>`;return}
  $('#hn').innerHTML=(!list.length&&q)?`<div class="card">Brak wyników dla „${esc(q)}”.${searchOn()?` <span class="lbl">Enter = szukaj w SearXNG</span> · <a href="${esc(searchUrl(q))}" target="_blank" rel="noopener">otwórz wyniki wyszukiwania ↗</a>`:''}</div>`:'';
  if(!list.length){$('#hg').innerHTML='';return}
  const cats=[...new Set(list.map(x=>x.category))];
  $('#hg').innerHTML=cats.map(c=>{const items=list.filter(x=>x.category==c);
-  return `<div class="cat" data-cat="${esc(c)}"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles" data-cat="${esc(c)}">${items.map(x=>{const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
-   const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
-   const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
-    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
-   if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" draggable="true" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj (przeciągnij, aby zmienić kategorię)">${inner}</div>`;
-   if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
-   return `<a class="${cls}" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}).join('')}</div>`}).join('');if(EDIT)bindDnD()}
+  return `<div class="cat" data-cat="${esc(c)}"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles" data-cat="${esc(c)}">${items.map(tileHtml).join('')}</div>`}).join('');if(EDIT)bindDnD()}
 // Drag and drop between categories (edit mode): drop a tile on a category header or on its tile grid.
 function bindDnD(){
  document.querySelectorAll('#hg .tile[draggable]').forEach(el=>{
@@ -218,7 +227,8 @@ function subnetForm(id){const s=D.subs.find(x=>x.id==id)||{name:'',cidr:'',gatew
  $('#sf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),n=k=>f.get(k)===''?null:+f.get(k);
   try{await api('/subnets'+(id?'/'+id:''),{method:id?'PUT':'POST',body:JSON.stringify({name:f.get('name'),cidr:f.get('cidr'),gateway:f.get('gateway')||null,vlan:n('vlan'),description:f.get('description'),scan_interval:n('scan_interval'),enabled:!!f.get('enabled'),exclusions:f.get('exclusions').split('\n').map(x=>x.trim()).filter(Boolean)})});$('#dlg').close();render(true)}catch(x){toast(x.message)}}}
 async function eventsView(){const [ev,sc]=await Promise.all([api('/events'),api('/scans')]);$('#main').innerHTML=`<div class="grid g2"><div class="card scroll"><b>Changes</b><table>${ev.map(e=>`<tr><td>${e.ts.replace('T',' ')}</td><td>${e.kind}</td><td>${e.ip||''}</td><td style="white-space:normal">${esc(e.detail)}</td></tr>`).join('')}</table></div><div class="card scroll"><b>Scan runs</b><table>${sc.map(e=>`<tr><td>${e.started.replace('T',' ')}</td><td>${e.kind}</td><td class="${e.status=='ok'?'ONLINE':'LOW'}">${e.status}</td><td>${e.found}</td><td style="white-space:normal">${esc(e.message)}</td></tr>`).join('')}</table></div></div>`}
-const SET=[['Dashboard: wyszukiwanie','',[['search_fallback_enabled','Gdy wyszukiwanie nic nie znajdzie, otwórz wyniki w SearXNG','b'],['search_url','Adres SearXNG (http://search.lan)']]],
+const SET=[['Dashboard: najczęściej używane','',[['top_used_enabled','Pokazuj najczęściej używane kafelki pod wyszukiwarką','b'],['top_used_count','Ile kafelków pokazać (1–24)','n']]],
+['Dashboard: wyszukiwanie','',[['search_fallback_enabled','Gdy wyszukiwanie nic nie znajdzie, otwórz wyniki w SearXNG','b'],['search_url','Adres SearXNG (http://search.lan)']]],
 ['Dockhand','dockhand',[['dockhand_enabled','Enabled','b'],['dockhand_url','URL (https://host:3000)'],['dockhand_token','API token (dh_…)','p'],['dockhand_verify_tls','Verify TLS','b'],['dockhand_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['dockhand_ca_bundle','CA bundle path (optional)'],['docker_engine_url','Docker Engine API fallback URL (optional)'],['dockhand_interval','Interval (min)','n']]],
 ['Proxmox VE','proxmox',[['proxmox_enabled','Enabled','b'],['proxmox_url','URL (https://pve:8006)'],['proxmox_token_id','Token ID (user@realm!name)'],['proxmox_token_secret','Token secret','p'],['proxmox_cluster_name','Cluster name'],['proxmox_verify_tls','Verify TLS','b'],['proxmox_fingerprint','Pinned certificate SHA-256 (overrides CA/verify; for self-signed)'],['proxmox_ca_bundle','CA bundle path (optional)'],['proxmox_interval','Interval (min)','n']]],
 ['ESPHome (optional)','esphome',[['esphome_enabled','Enabled','b'],['esphome_dashboard_url','Dashboard URL'],['esphome_dashboard_user','Dashboard user'],['esphome_dashboard_password','Dashboard password','p'],['esphome_hosts','Extra hosts (host or name=host, comma separated)'],['esphome_native_api','Use native API','b'],['esphome_noise_psk','API encryption key (base64)','p'],['esphome_api_password','API password','p'],['esphome_interval','Interval (min)','n']]],

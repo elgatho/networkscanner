@@ -59,6 +59,14 @@ class ServiceLink(Base):
     seen_at: Mapped[object] = mapped_column(DateTime, default=utcnow)
 
 
+class ServiceUse(Base):
+    """How often a dashboard tile was opened (feeds the 'most used' row)."""
+    __tablename__ = "service_uses"
+    key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    last_at: Mapped[object] = mapped_column(DateTime, nullable=True)
+
+
 class SourceStatus(Base):
     __tablename__ = "source_status"
     source: Mapped[str] = mapped_column(String(20), primary_key=True)

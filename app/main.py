@@ -171,6 +171,15 @@ def edit_link(key: str, body: LinkIn, s=Depends(session)):
     return {"ok": True}
 
 
+@app.post("/api/dashboard/open/{key:path}")
+def open_link(key: str, s=Depends(session)):
+    """Count a click on a tile (feeds the 'most used' row)."""
+    try:
+        return {"count": services.record_open(s, key)}
+    except LookupError:
+        _404()
+
+
 class CategoryIn(BaseModel):
     category: str
 

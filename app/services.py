@@ -24,7 +24,7 @@ import uuid
 
 from sqlalchemy import select
 
-from .database import ServiceLink, SourceRecord, SourceStatus
+from .database import ServiceLink, ServiceUse, SourceRecord, SourceStatus
 from . import icons
 from .util import iso, utcnow
 
@@ -291,6 +291,20 @@ def set_category(s, key: str, category: str) -> dict:
     return row.override
 
 
+def record_open(s, key: str) -> int:
+    """Count one click on a tile. Returns the new total."""
+    if s.get(ServiceLink, key) is None:
+        raise LookupError(key)
+    row = s.get(ServiceUse, key)
+    if row is None:
+        row = ServiceUse(key=key, count=0)
+        s.add(row)
+    row.count = (row.count or 0) + 1
+    row.last_at = utcnow()
+    s.commit()
+    return row.count
+
+
 def add_custom(s, data: dict) -> str:
     """Create a hand-made tile (not tied to any container). Returns its key."""
     clean = _clean(data)
@@ -310,11 +324,15 @@ def delete_custom(s, key: str) -> None:
     if row is None:
         raise LookupError(key)
     s.delete(row)
+    use = s.get(ServiceUse, key)
+    if use is not None:
+        s.delete(use)
     s.commit()
 
 
 def build_services(s, st: dict | None = None) -> list[dict]:
     current = sync_links(s, st)
+    uses = {u.key: u.count or 0 for u in s.scalars(select(ServiceUse))}
     out = []
     for row in s.scalars(select(ServiceLink)):
         custom = row.key.startswith(CUSTOM_PREFIX)
@@ -329,7 +347,7 @@ def build_services(s, st: dict | None = None) -> list[dict]:
             "linkable": bool(m.get("linkable", True)) and bool(url),
             "icon": m.get("icon") or "", "hidden": bool(m.get("hidden")), "state": m.get("state") or "",
             "environment": m.get("environment") or "", "host": m.get("host") or "",
-            "edited": bool(ov) and not custom, "custom": custom,
+            "edited": bool(ov) and not custom, "custom": custom, "uses": uses.get(row.key, 0),
             "auto": {k: auto.get(k) for k in EDITABLE},
         })
     out.sort(key=lambda x: (x["category"].lower(), x["name"].lower()))
@@ -389,4 +407,6 @@ def dashboard(s, st: dict | None = None) -> dict:
         "proxmox": build_proxmox(s),
         "services": build_services(s, st),
         "search": {"enabled": bool(st.get("search_fallback_enabled")), "url": st.get("search_url") or ""},
+        "top_used": {"enabled": bool(st.get("top_used_enabled", True)),
+                     "count": min(24, max(1, int(st.get("top_used_count", 6) or 6)))},
     }
