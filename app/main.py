@@ -131,7 +131,44 @@ def get_summary(s=Depends(session)):
 
 @app.get("/api/dashboard")
 def get_dashboard(s=Depends(session)):
-    return services.dashboard(s)
+    return services.dashboard(s, db.get_settings(s))
+
+
+@app.post("/api/dashboard/refresh", dependencies=[Depends(need_settings_auth)])
+def refresh_dashboard(s=Depends(session)):
+    """Re-read Dockhand details for every tile. Hand edits (category, url, hidden...) are kept."""
+    st = db.get_settings(s)
+    if not st.get("dockhand_enabled"):
+        raise HTTPException(409, "Dockhand integration is disabled")
+    try:
+        dd.refresh_source("dockhand")  # fresh container list first, then the tile details from it
+        services.sync_links(s, st, refresh=True)
+    except Exception as e:
+        raise HTTPException(502, f"Dockhand refresh failed: {e}")
+    return {"ok": True, "count": len(services.build_services(s, st))}
+
+
+class LinkIn(BaseModel):
+    name: str | None = None
+    category: str | None = None
+    description: str | None = None
+    url: str | None = None
+    icon: str | None = None
+    hidden: bool | None = None
+    linkable: bool | None = None
+    reset: bool = False
+
+
+@app.put("/api/dashboard/links/{key:path}")
+def edit_link(key: str, body: LinkIn, s=Depends(session)):
+    data = {} if body.reset else body.model_dump(exclude={"reset"}, exclude_none=True)
+    try:
+        services.set_override(s, key, data)
+    except LookupError:
+        _404()
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
 
 
 @app.get("/api/ips")

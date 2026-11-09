@@ -33,9 +33,13 @@ Update: `git pull; docker compose up -d --build` (data lives in volume `scanner-
 ## Dashboard (first tab)
 
 - **Proxmox overview**: nodes online, VMs/LXC running, CPU, RAM and disk per cluster and per node (from `/cluster/resources`).
-- **Services**: Docker containers from Dockhand that publish a port, grouped by category, shown as tiles with icon, description and link, with a search box. Link = `http://<environment host>:<published port>`.
+- **Services**: one tile per Docker container from Dockhand, grouped by category, with icon, description and link, and a search box.
+  Details (IP, ports, labels) are read from Dockhand only when a container first appears, or on **Settings → Dashboard → Odśwież teraz**. Hand edits are kept on refresh.
+  Default link: a container with its own LAN address (macvlan, same /24 as its Docker host) links to that address on port 80 (https if only 443 is exposed); otherwise the published port on the Docker host; otherwise the host on port 80. DNS names from AdGuard rewrites are shown as IPs.
+  **Edit tiles** (✎ Edytuj kafelki): change name, category, description, link, icon, make a tile non-clickable, or hide it. "Przywróć z Dockhand" drops the edits.
+  **Search**: Enter with no matching tile opens the query in SearXNG (`search_url`, default `http://search.lan`). Both are set in Settings → Dashboard.
   Optional container labels (set on the container / in compose):
-  `dashboard.url` (full link), `dashboard.name`, `dashboard.category`, `dashboard.description`, `dashboard.icon` (dashboard-icons slug or image URL), `dashboard.hide=true`.
+  `dashboard.url` (full link), `dashboard.port`, `dashboard.name`, `dashboard.category`, `dashboard.description`, `dashboard.icon` (dashboard-icons slug or image URL), `dashboard.hide=true`.
   Icons load from the dashboard-icons CDN (jsdelivr); a letter is shown when an icon is missing.
 
 ## First available IP

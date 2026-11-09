@@ -1,25 +1,35 @@
-"""Dashboard data: Proxmox overview and Docker service tiles, built from the stored source records.
+"""Dashboard data: Proxmox overview and Docker service tiles.
 
-Service tiles come from Dockhand containers that publish a port (or set a `dashboard.url` label).
-Optional labels on the container (set in docker-compose / the container itself) override the defaults:
-  dashboard.url          full link (default: http://<environment host>:<port>)
-  dashboard.port         port used in the default link (default: first published port, else 80)
+Tiles are one row per Docker container (table `service_links`). The `auto` part is read from Dockhand
+only when a container first appears, or on an explicit refresh (Settings -> Refresh). The `override`
+part holds fields edited by hand on the dashboard and always wins over `auto`; a refresh never touches it.
+
+Optional labels on the container override the defaults:
+  dashboard.url          full link (default: http://<LAN address or environment host>:<port>)
+  dashboard.port         port used in the default link
   dashboard.name         tile title (default: container name)
   dashboard.category     category (default: guessed from the image name)
   dashboard.description  text (default: image name)
   dashboard.icon         dashboard-icons slug (e.g. jellyfin) or a full image URL (default: from image name)
-  dashboard.hide         "true" to hide the container from the dashboard
+  dashboard.hide         "true" to hide the tile (still listed in edit mode)
+
+Default link: a container with its own LAN address (macvlan) links to that address on port 80, or https if
+only 443 is exposed; otherwise the published port on the Docker host; otherwise the host on port 80.
 """
 import ipaddress
+import logging
 from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 
-from .database import SourceRecord, SourceStatus
-from .util import iso
+from .database import ServiceLink, SourceRecord, SourceStatus
+from .util import iso, utcnow
+
+log = logging.getLogger(__name__)
 
 ICON_CDN = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/"
 DEFAULT_CATEGORY = "Other"
+EDITABLE = ("name", "category", "description", "url", "icon", "hidden", "linkable")
 
 # category -> image/name keywords (matched as substrings of the lowercased image and container name)
 CATEGORY_RULES = [
@@ -103,7 +113,27 @@ def _ip_url(url: str, names: dict[str, str]) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
-def _service_url(extra: dict, labels: dict, names: dict[str, str] | None = None) -> str | None:
+def _lan_ip(host: str, ips: list[str]) -> str | None:
+    """Container address on the same IPv4 /24 as the Docker host (macvlan/LAN-attached), if any."""
+    try:
+        h = ipaddress.ip_network(f"{host}/24", strict=False)
+    except ValueError:
+        return None
+    for ip in ips:
+        try:
+            if ipaddress.ip_address(ip) in h:
+                return ip
+        except ValueError:
+            continue
+    return None
+
+
+def _scheme(port: int) -> str:
+    return "https" if port == 443 else "http"
+
+
+def _service_url(extra: dict, labels: dict, names: dict[str, str] | None = None,
+                 lan_ip: str | None = None) -> str | None:
     names = names or {}
     if labels.get("dashboard.url"):
         return _ip_url(labels["dashboard.url"], names)
@@ -111,42 +141,129 @@ def _service_url(extra: dict, labels: dict, names: dict[str, str] | None = None)
     if not host:
         return None
     host = _resolve(host, names)
-    if labels.get("dashboard.port"):  # explicit port chosen by the user
-        return f"http://{host}:{labels['dashboard.port']}"
+    if labels.get("dashboard.port"):  # explicit port; a LAN-attached container answers on its own address
+        try:
+            port = int(labels["dashboard.port"])
+        except ValueError:
+            port = 80
+        return f"{_scheme(port)}://{lan_ip or host}:{port}"
     for p in extra.get("ports") or []:
         if p.get("ip") in ("127.0.0.1", "::1"):  # bound to loopback only: not reachable from the LAN
             continue
-        if p.get("public"):
-            return f"http://{host}:{p['public']}"
-    return f"http://{host}:80"  # no published port: assume the web UI is on 80
+        if p.get("public"):  # published on the Docker host, so the host address is the one to use
+            return f"{_scheme(p['public'])}://{host}:{p['public']}"
+    if not lan_ip:
+        return f"http://{host}:80"  # no published port and no LAN address: assume the web UI is on 80
+    exposed = sorted(set(extra.get("exposed") or []))
+    if not exposed or 80 in exposed:
+        return f"http://{lan_ip}:80"
+    if 443 in exposed:
+        return f"https://{lan_ip}"
+    return f"http://{lan_ip}:{exposed[0]}"
 
 
-def build_services(s) -> list[dict]:
-    seen, out = set(), []
+def _groups(recs: list[dict]) -> dict[str, dict]:
+    """Container records (one per network) -> {"<environment>|<container id>": {extra, name, state, ips}}."""
+    groups = {}
+    for r in recs:
+        ex = r.get("extra") or {}
+        key = f"{ex.get('environment', '')}|{ex.get('container_id') or r.get('name')}"
+        g = groups.setdefault(key, {"extra": ex, "name": r.get("name") or "", "state": r.get("state") or "", "ips": []})
+        if r.get("ip"):
+            g["ips"].append(r["ip"])
+    return groups
+
+
+def auto_fields(grp: dict, names: dict[str, str]) -> dict:
+    extra = grp["extra"]
+    labels = extra.get("labels") or {}
+    image = extra.get("image") or ""
+    name = grp["name"]
+    raw = extra.get("env_host") or ""
+    host = _resolve(raw, names) if raw else ""
+    lan = _lan_ip(host, grp["ips"]) if host else None
+    url = _service_url(extra, labels, names, lan) or ""
+    return {
+        "name": labels.get("dashboard.name") or name,
+        "category": categorize(image, name, labels.get("dashboard.category")),
+        "description": labels.get("dashboard.description") or image or "container",
+        "icon": icon_url(labels.get("dashboard.icon"), image, name),
+        "url": url, "linkable": bool(url),
+        "hidden": str(labels.get("dashboard.hide", "")).lower() == "true",
+        "state": grp["state"], "environment": extra.get("environment") or "", "host": lan or host,
+    }
+
+
+def sync_links(s, st: dict | None = None, refresh: bool = False) -> set[str]:
+    """Create tiles for new containers (reading their details from Dockhand once), or refresh all of them.
+    Returns the keys of the containers currently known to Dockhand."""
+    recs = [{"name": r.name, "state": r.state, "ip": r.ip, "extra": r.extra or {}}
+            for r in s.scalars(select(SourceRecord).where(SourceRecord.source == "dockhand",
+                                                          SourceRecord.kind == "container"))]
+    groups = _groups(recs)
+    rows = {r.key: r for r in s.scalars(select(ServiceLink))}
+    targets = set(groups) if refresh else {k for k in groups if k not in rows}
+    if st and st.get("dockhand_enabled") and targets:
+        try:
+            from .dockhand_connector import DockhandConnector
+            detail = _groups(DockhandConnector(st).describe(targets))
+            for key, dg in detail.items():  # inspect data: exposed ports and all addresses
+                if key in groups:
+                    groups[key]["extra"] = {**groups[key]["extra"], "exposed": dg["extra"].get("exposed", [])}
+                    groups[key]["ips"] = sorted(set(groups[key]["ips"]) | set(dg["ips"]))
+        except Exception as e:  # tiles still get created from the records we already have
+            log.warning("Dockhand container details unavailable: %s", e)
     names = name_to_ip_map(s)
-    for r in s.scalars(select(SourceRecord).where(SourceRecord.source == "dockhand", SourceRecord.kind == "container")):
-        extra = r.extra or {}
-        cid = extra.get("container_id") or f"{r.name}"
-        if cid in seen:  # one container with several networks yields several records
+    now = utcnow()
+    for key in targets:
+        auto = auto_fields(groups[key], names)
+        row = rows.get(key)
+        if row is None:
+            s.add(ServiceLink(key=key, auto=auto, override={}, seen_at=now))
+        elif refresh:
+            row.auto, row.seen_at = auto, now
+    s.commit()
+    return set(groups)
+
+
+def set_override(s, key: str, data: dict) -> dict:
+    """Store the hand-edited fields of a tile (fields equal to the auto value are not sent). Empty -> reset."""
+    row = s.get(ServiceLink, key)
+    if row is None:
+        raise LookupError(key)
+    clean = {}
+    for k in EDITABLE:
+        if k not in data or data[k] is None:
             continue
-        seen.add(cid)
-        labels = extra.get("labels") or {}
-        if str(labels.get("dashboard.hide", "")).lower() == "true":
+        if k in ("hidden", "linkable"):
+            clean[k] = bool(data[k])
+        else:
+            v = str(data[k]).strip()
+            if v:
+                clean[k] = v
+    if clean.get("url") and not clean["url"].startswith(("http://", "https://")):
+        raise ValueError("URL must start with http:// or https://")
+    row.override = clean
+    s.commit()
+    return clean
+
+
+def build_services(s, st: dict | None = None) -> list[dict]:
+    current = sync_links(s, st)
+    out = []
+    for row in s.scalars(select(ServiceLink)):
+        if row.key not in current:  # container no longer present in Dockhand
             continue
-        url = _service_url(extra, labels, names)
-        if not url:
-            continue
-        image = extra.get("image") or ""
-        name = labels.get("dashboard.name") or r.name
-        desc = labels.get("dashboard.description") or image or "container"
+        auto, ov = row.auto or {}, row.override or {}
+        m = {**auto, **ov}
+        url = m.get("url") or ""
         out.append({
-            "name": name,
-            "category": categorize(image, r.name, labels.get("dashboard.category")),
-            "description": desc,
-            "url": url,
-            "icon": icon_url(labels.get("dashboard.icon"), image, r.name),
-            "state": r.state or "",
-            "environment": extra.get("environment") or "",
+            "key": row.key, "name": m.get("name") or "?", "category": m.get("category") or DEFAULT_CATEGORY,
+            "description": m.get("description") or "", "url": url,
+            "linkable": bool(m.get("linkable", True)) and bool(url),
+            "icon": m.get("icon") or "", "hidden": bool(m.get("hidden")), "state": m.get("state") or "",
+            "environment": m.get("environment") or "", "host": m.get("host") or "", "edited": bool(ov),
+            "auto": {k: auto.get(k) for k in EDITABLE},
         })
     out.sort(key=lambda x: (x["category"].lower(), x["name"].lower()))
     return out
@@ -199,5 +316,10 @@ def build_proxmox(s) -> dict:
     }
 
 
-def dashboard(s) -> dict:
-    return {"proxmox": build_proxmox(s), "services": build_services(s)}
+def dashboard(s, st: dict | None = None) -> dict:
+    st = st or {}
+    return {
+        "proxmox": build_proxmox(s),
+        "services": build_services(s, st),
+        "search": {"enabled": bool(st.get("search_fallback_enabled")), "url": st.get("search_url") or ""},
+    }

@@ -26,6 +26,8 @@ dialog{border:1px solid var(--bd);border-radius:10px;background:var(--card);colo
 label{display:block;margin:6px 0 2px;color:var(--mut);font-size:12px}label.c{display:flex;gap:6px;align-items:center;color:var(--tx)}.f input[type=text],.f input[type=password],.f input[type=number],.f textarea{width:100%}
 .kv td:first-child{color:var(--mut);width:140px}#toast{position:fixed;bottom:16px;right:16px;background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none}
 .hbar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden;margin:4px 0}.hbar i{display:block;height:100%;background:var(--ac)}.hbar i.hi{background:var(--warn)}.hbar i.hx{background:var(--bad)}
+.tile.off{opacity:.45;border-style:dashed}.tile.nolink{cursor:default}.tile.nolink:hover{border-color:var(--bd);background:var(--card)}.tile .badge{font-size:10px;color:var(--ac)}
+details.set{margin-bottom:12px}details.set summary{cursor:pointer;list-style:none}details.set summary::before{content:'▸ ';color:var(--mut)}details.set[open] summary::before{content:'▾ '}
 .node{display:grid;grid-template-columns:minmax(90px,140px) 1fr;gap:4px 12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)}.node:last-child{border:0}
 .cat{margin:18px 0 8px;display:flex;align-items:baseline;gap:8px}.cat b{font-size:15px}
 .tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
@@ -43,7 +45,7 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:18px 16px 24px}
 <main id="main"></main><footer id="ver"></footer><dialog id="dlg"></dialog><div id="toast"></div>
 <script>
 const $=(s,e=document)=>e.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let TOKEN=localStorage.getItem('tok')||'', tab='home', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false,hq:''}, HOME=null;
+let TOKEN=localStorage.getItem('tok')||'', tab='home', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false,hq:''}, HOME=null, EDIT=false;
 async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Access-Token':TOKEN,...(o.headers||{})};
  const r=await fetch('/api'+p,o); const j=await r.json().catch(()=>({}));
  if(r.status==401&&j.detail=='settings login required'){const e=new Error(j.detail);e.login=true;throw e}
@@ -61,9 +63,15 @@ async function render(force){document.querySelectorAll('nav button').forEach(b=>
 const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
 async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
- if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Search services (name, category, description, host)…" style="flex:1;min-width:220px"></div><div id="hg"></div>';
-  $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()}}
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"><button class="b" id="hedit"></button></div><div id="hn"></div><div id="hg"></div>';
+  $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
+  $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
+  $('#hedit').onclick=()=>{EDIT=!EDIT;homeGrid()}}
  homeStats(); homeGrid()}
+function searchOn(){return !!(HOME.search&&HOME.search.enabled&&HOME.search.url)}
+function searchUrl(q){return HOME.search.url.replace(/\/+$/,'')+'/search?q='+encodeURIComponent(q)}
+function visibleServices(){const q=(F.hq||'').trim().toLowerCase();
+ return HOME.services.filter(x=>(EDIT||!x.hidden)&&(!q||[x.name,x.category,x.description,x.url,x.host,x.environment].join(' ').toLowerCase().includes(q)))}
 function homeStats(){const p=HOME.proxmox;let h;
  if(!p.configured){h=`<div class="card"><div class="lbl">PROXMOX</div>Proxmox nie jest skonfigurowany — dodaj go w Settings.</div>`}
  else{const sub=(a,b)=>`<div class="card"><div class="lbl">${a}</div><div class="num">${b}</div></div>`;
@@ -74,21 +82,45 @@ function homeStats(){const p=HOME.proxmox;let h;
   ${sub('CPU',cpu+(p.cores?` <span class="lbl">${p.cores} cores</span>`:''))}
   <div class="card"><div class="lbl">RAM</div><div class="num">${mp}%</div>${bar(mp)}<div class="lbl">${fmtB(p.mem_used)} / ${fmtB(p.mem_total)}</div></div>
   <div class="card"><div class="lbl">Disk</div><div class="num">${dp}%</div>${bar(dp)}<div class="lbl">${fmtB(p.disk_used)} / ${fmtB(p.disk_total)}</div></div></div>`;
-  if(p.nodes.length){h+=`<div class="card" style="margin-top:12px">${p.nodes.map(n=>{m=pct(n.mem,n.maxmem),d=pct(n.disk,n.maxdisk);
+  if(p.nodes.length){h+=`<div class="card" style="margin-top:12px">${p.nodes.map(n=>{const m=pct(n.mem,n.maxmem),d=pct(n.disk,n.maxdisk);
    return `<div class="node"><div><b>${esc(n.node)}</b><div class="${n.status=='online'?'ONLINE':'OFFLINE'}" style="font-size:12px">${esc(n.status)}${n.uptime?' · up '+Math.floor(n.uptime/86400)+'d':''}</div></div>
    <div class="grid g2" style="gap:8px"><div><span class="lbl">CPU ${Math.round((n.cpu||0)*100)}%</span>${bar(Math.round((n.cpu||0)*100))}</div><div><span class="lbl">RAM ${m}% · ${fmtB(n.mem)}/${fmtB(n.maxmem)}</span>${bar(m)}</div><div><span class="lbl">Disk ${d}%</span>${bar(d)}</div></div></div>`}).join('')}</div>`}
  }
  $('#hs').innerHTML=h}
-function homeGrid(){const q=(F.hq||'').trim().toLowerCase();
- const list=HOME.services.filter(x=>!q||[x.name,x.category,x.description,x.url,x.environment].join(' ').toLowerCase().includes(q));
- if(!HOME.services.length){$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem pojawią się tutaj (lub ustaw label <code>dashboard.url</code>).</div>`;return}
- if(!list.length){$('#hg').innerHTML=`<div class="card">Brak wyników dla „${esc(F.hq)}”.</div>`;return}
+function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
+ $('#hedit').textContent=EDIT?'✓ Gotowe':'✎ Edytuj kafelki'; $('#hedit').classList.toggle('p',EDIT);
+ if(!HOME.services.length){$('#hn').innerHTML='';$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem lub z adresem LAN pojawią się tutaj (albo ustaw label <code>dashboard.url</code>).</div>`;return}
+ $('#hn').innerHTML=(!list.length&&q)?`<div class="card">Brak wyników dla „${esc(q)}”.${searchOn()?` <span class="lbl">Enter = szukaj w SearXNG</span> · <a href="${esc(searchUrl(q))}" target="_blank" rel="noopener">otwórz wyniki wyszukiwania ↗</a>`:''}</div>`:'';
+ if(!list.length){$('#hg').innerHTML='';return}
  const cats=[...new Set(list.map(x=>x.category))];
  $('#hg').innerHTML=cats.map(c=>{const items=list.filter(x=>x.category==c);
-  return `<div class="cat"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles">${items.map(x=>{const host=x.url.replace(/^https?:\/\//,'');
-   return `<a class="tile" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">
-    <div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
-    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="ds">${esc(x.description)}</div><div class="hs">${esc(host)}</div></div></a>`}).join('')}</div>`}).join('')}
+  return `<div class="cat"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles">${items.map(x=>{const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
+   const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
+   const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
+    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="ds">${esc(x.description)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
+   if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj">${inner}</div>`;
+   if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
+   return `<a class="${cls}" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}).join('')}</div>`}).join('')}
+function editLink(k){const x=HOME.services.find(s=>s.key==k);if(!x)return;const a=x.auto||{};
+ const cats=[...new Set(HOME.services.map(s=>s.category))].sort();
+ $('#dlg').innerHTML=`<form id="lkf" class="f" style="min-width:min(520px,88vw)"><b>${esc(x.name)}</b> <span class="lbl">${esc(x.host)}</span>
+ <label>Nazwa</label><input type="text" name="name" value="${esc(x.name)}">
+ <label>Kategoria</label><input type="text" name="category" list="catlist" value="${esc(x.category)}"><datalist id="catlist">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+ <label>Opis</label><input type="text" name="description" value="${esc(x.description)}">
+ <label>Link</label><input type="text" name="url" value="${esc(x.url)}" placeholder="http://…">
+ <label>Ikona (slug dashboard-icons lub URL)</label><input type="text" name="icon" value="${esc(x.icon)}">
+ <label class="c"><input type="checkbox" name="linkable" ${x.linkable?'checked':''}> Klikalny link</label>
+ <label class="c"><input type="checkbox" name="hidden" ${x.hidden?'checked':''}> Ukryj na dashboardzie</label>
+ <div class="lbl" style="margin-top:8px">Z Dockhand: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>
+ <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="b p">Zapisz</button><button type="button" class="b" id="lkreset">Przywróć z Dockhand</button><span style="flex:1"></span><button type="button" class="b" id="lkcancel">Anuluj</button></div></form>`;
+ const f=$('#lkf');
+ $('#lkcancel').onclick=()=>$('#dlg').close();
+ $('#lkreset').onclick=async()=>{try{await api('/dashboard/links/'+encodeURIComponent(k),{method:'PUT',body:JSON.stringify({reset:true})});$('#dlg').close();toast('Przywrócono');homeView(true)}catch(e){toast(e.message)}};
+ f.onsubmit=async e=>{e.preventDefault();const d=new FormData(f),body={};
+  for(const key of ['name','category','description','url','icon']){const v=(d.get(key)||'').trim();body[key]=v===String(a[key]??'').trim()?null:v}
+  for(const key of ['linkable','hidden']){const v=!!d.get(key);body[key]=v===!!a[key]?null:v}
+  try{await api('/dashboard/links/'+encodeURIComponent(k),{method:'PUT',body:JSON.stringify(body)});$('#dlg').close();toast('Zapisano');homeView(true)}catch(err){toast(err.message)}};
+ $('#dlg').showModal()}
 function ffCard(f,main){const w=(f.warnings||[]).map(x=>`<div class="warn">⚠ ${esc(x)}</div>`).join('');
  return `<div class="card ${main?'main':''}"><div class="lbl">${main?'FIRST AVAILABLE IP':'First available'} · ${esc(f.subnet)}</div>
  <div class="${main?'big':'mid'}">${f.ip?esc(f.ip):'— none —'}</div>
@@ -138,7 +170,8 @@ function subnetForm(id){const s=D.subs.find(x=>x.id==id)||{name:'',cidr:'',gatew
  $('#sf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),n=k=>f.get(k)===''?null:+f.get(k);
   try{await api('/subnets'+(id?'/'+id:''),{method:id?'PUT':'POST',body:JSON.stringify({name:f.get('name'),cidr:f.get('cidr'),gateway:f.get('gateway')||null,vlan:n('vlan'),description:f.get('description'),scan_interval:n('scan_interval'),enabled:!!f.get('enabled'),exclusions:f.get('exclusions').split('\n').map(x=>x.trim()).filter(Boolean)})});$('#dlg').close();render(true)}catch(x){toast(x.message)}}}
 async function eventsView(){const [ev,sc]=await Promise.all([api('/events'),api('/scans')]);$('#main').innerHTML=`<div class="grid g2"><div class="card scroll"><b>Changes</b><table>${ev.map(e=>`<tr><td>${e.ts.replace('T',' ')}</td><td>${e.kind}</td><td>${e.ip||''}</td><td style="white-space:normal">${esc(e.detail)}</td></tr>`).join('')}</table></div><div class="card scroll"><b>Scan runs</b><table>${sc.map(e=>`<tr><td>${e.started.replace('T',' ')}</td><td>${e.kind}</td><td class="${e.status=='ok'?'ONLINE':'LOW'}">${e.status}</td><td>${e.found}</td><td style="white-space:normal">${esc(e.message)}</td></tr>`).join('')}</table></div></div>`}
-const SET=[['Dockhand','dockhand',[['dockhand_enabled','Enabled','b'],['dockhand_url','URL (https://host:3000)'],['dockhand_token','API token (dh_…)','p'],['dockhand_verify_tls','Verify TLS','b'],['dockhand_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['dockhand_ca_bundle','CA bundle path (optional)'],['docker_engine_url','Docker Engine API fallback URL (optional)'],['dockhand_interval','Interval (min)','n']]],
+const SET=[['Dashboard: wyszukiwanie','',[['search_fallback_enabled','Gdy wyszukiwanie nic nie znajdzie, otwórz wyniki w SearXNG','b'],['search_url','Adres SearXNG (http://search.lan)']]],
+['Dockhand','dockhand',[['dockhand_enabled','Enabled','b'],['dockhand_url','URL (https://host:3000)'],['dockhand_token','API token (dh_…)','p'],['dockhand_verify_tls','Verify TLS','b'],['dockhand_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['dockhand_ca_bundle','CA bundle path (optional)'],['docker_engine_url','Docker Engine API fallback URL (optional)'],['dockhand_interval','Interval (min)','n']]],
 ['Proxmox VE','proxmox',[['proxmox_enabled','Enabled','b'],['proxmox_url','URL (https://pve:8006)'],['proxmox_token_id','Token ID (user@realm!name)'],['proxmox_token_secret','Token secret','p'],['proxmox_cluster_name','Cluster name'],['proxmox_verify_tls','Verify TLS','b'],['proxmox_fingerprint','Pinned certificate SHA-256 (overrides CA/verify; for self-signed)'],['proxmox_ca_bundle','CA bundle path (optional)'],['proxmox_interval','Interval (min)','n']]],
 ['ESPHome (optional)','esphome',[['esphome_enabled','Enabled','b'],['esphome_dashboard_url','Dashboard URL'],['esphome_dashboard_user','Dashboard user'],['esphome_dashboard_password','Dashboard password','p'],['esphome_hosts','Extra hosts (host or name=host, comma separated)'],['esphome_native_api','Use native API','b'],['esphome_noise_psk','API encryption key (base64)','p'],['esphome_api_password','API password','p'],['esphome_interval','Interval (min)','n']]],
 ['OPNsense (DHCP)','opnsense',[['opnsense_enabled','Enabled','b'],['opnsense_url','URL (https://opnsense)'],['opnsense_key','API key','p'],['opnsense_secret','API secret','p'],['opnsense_reservations','Include static reservations (Kea)','b'],['opnsense_verify_tls','Verify TLS','b'],['opnsense_fingerprint','Pinned certificate SHA-256 (for self-signed)'],['opnsense_ca_bundle','CA bundle path (optional)'],['opnsense_interval','Interval (min)','n']]],
@@ -151,8 +184,9 @@ async function settingsView(){const a=await api('/auth/status');
  if(!a.authenticated)return loginView();
  let st;try{st=await api('/settings')}catch(x){if(x.login)return loginView();throw x}
  const src=D.src||await api('/sources'),rules=await api('/conflict-rules');
- $('#main').innerHTML=`<form id="stf" class="grid g2 f">${SET.map(([t,id,fs])=>`<div class="card"><b>${t}</b> ${id?`<button type="button" class="b" data-t="${id}" style="float:right">Test connection</button><div class="lbl" data-st="${id}">${(()=>{const x=src.find(y=>y.source==id);return x?(x.ok?'✓ ok, '+x.count+' records, '+ago(x.last_ok):'✗ '+esc(x.error)):''})()}</div>`:''}
- ${fs.map(([k,l,ty])=>ty=='b'?`<label class="c"><input type="checkbox" name="${k}" ${st[k]?'checked':''}> ${l}</label>`:`<label>${l}</label><input type="${ty=='p'?'password':ty=='n'?'number':'text'}" name="${k}" value="${esc(st[k])}" ${ty=='p'?'autocomplete="new-password"':''}>`).join('')}</div>`).join('')}
+ $('#main').innerHTML=`<div class="card" style="margin-bottom:12px"><b>Dashboard: kafelki z Dockhand</b> <button type="button" class="b" onclick="dashRefresh()" style="float:right">Odśwież teraz</button><div class="lbl">Adresy IP, porty i etykiety kontenerów są odczytywane przy dodaniu kontenera i po odświeżeniu. Ręczne zmiany kafelków są zachowywane.</div></div>
+<form id="stf" class="grid g2 f">${SET.map(([t,id,fs])=>`<details class="card set"><summary><b>${t}</b></summary> ${id?`<button type="button" class="b" data-t="${id}" style="float:right">Test connection</button><div class="lbl" data-st="${id}">${(()=>{const x=src.find(y=>y.source==id);return x?(x.ok?'✓ ok, '+x.count+' records, '+ago(x.last_ok):'✗ '+esc(x.error)):''})()}</div>`:''}
+ ${fs.map(([k,l,ty])=>ty=='b'?`<label class="c"><input type="checkbox" name="${k}" ${st[k]?'checked':''}> ${l}</label>`:`<label>${l}</label><input type="${ty=='p'?'password':ty=='n'?'number':'text'}" name="${k}" value="${esc(st[k])}" ${ty=='p'?'autocomplete="new-password"':''}>`).join('')}</details>`).join('')}
  <div><button class="b p">Save settings</button></div></form>
  <div class="card" style="margin-top:12px"><b>Silenced conflicts</b>${rules.length?`<table>${rules.map(r=>`<tr><td>${esc(r.ip||'')}</td><td>${esc(r.mac||'')}</td><td>${esc(r.note)}</td><td><button class="b" onclick="delRule(${r.id})">Remove</button></td></tr>`).join('')}</table>`:'<div class="lbl">none — use “Ignore” next to a conflict on the dashboard</div>'}</div>
  <div class="card" style="margin-top:12px"><b>Settings password</b>${!a.configured?'<div class="warn">⚠ No password set: anyone who can open this page can read/change settings.</div>':''}${a.env_managed?'<div class="lbl">Managed by SETTINGS_PASSWORD env variable.</div>':`<form id="pwf" class="f">${a.configured?'<label>Current password</label><input type="password" name="cur" autocomplete="current-password">':''}<label>New password (min 8 chars)</label><input type="password" name="new" autocomplete="new-password"><button class="b p">${a.configured?'Change':'Set'} password</button></form>`}${a.configured?'<button class="b" onclick="logout()" style="margin-top:8px">Log out</button>':''}</div>`;
@@ -163,6 +197,7 @@ async function settingsView(){const a=await api('/auth/status');
 function loginView(){$('#main').innerHTML=`<form id="lf" class="card f" style="max-width:360px"><b>Settings login</b><label>Password</label><input type="password" name="p" autocomplete="current-password" autofocus><button class="b p">Log in</button></form>`;
  $('#lf').onsubmit=async e=>{e.preventDefault();try{await api('/auth/login',{method:'POST',body:JSON.stringify({password:new FormData(e.target).get('p')})});render(true)}catch(x){toast(x.message)}}}
 async function logout(){await api('/auth/logout',{method:'POST'});render(true)}
+async function dashRefresh(){try{const r=await api('/dashboard/refresh',{method:'POST'});toast('Odświeżono kafelki: '+r.count)}catch(x){toast(x.message)}}
 async function delRule(id){await api('/conflict-rules/'+id,{method:'DELETE'});render(true)}
 async function ignoreConflict(ip,mac){const note=prompt('Silence conflict on '+ip+' — note (why it is harmless):','');if(note===null)return;await api('/conflict-rules',{method:'POST',body:JSON.stringify({ip,note})});toast('Conflict silenced');render(true)}
 async function exportCsv(){const qs=new URLSearchParams();for(const k of['q','subnet','vlan','status','source'])if(F[k])qs.set(k,F[k]);

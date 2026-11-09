@@ -158,6 +158,35 @@ class DockhandConnector:
         return {"ok": True, "message": f"Connected, {len(envs)} environment(s)",
                 "details": [g(e, "name") for e in envs]}
 
+    def describe(self, keys):
+        """Records (with exposed ports) for the containers whose "<environment>|<id>" key is in `keys`.
+        Used only when a dashboard tile is created or refreshed by hand."""
+        want, out = set(keys), []
+        for env in self.environments():
+            eid, ename = g(env, "id"), g(env, "name") or str(g(env, "id"))
+            ehost = g(env, "host", "hostname", "address") or urlparse(self.cfg["dockhand_url"]).hostname or ""
+            try:
+                nets = parse_networks(as_list(self._get("/api/networks", env=eid), "networks", "data"))
+            except Exception:
+                nets = {}
+            for c in as_list(self._get("/api/containers", env=eid), "containers", "data"):
+                cid = g(c, "Id", "ID") or ""
+                if f"{ename}|{cid}" not in want:
+                    continue
+                try:
+                    insp = self._get(f"/api/containers/{cid}/inspect", env=eid)
+                    merged = {**c, **insp} if isinstance(insp, dict) else c
+                except Exception:
+                    merged = c
+                cfg = g(merged, "Config") or {}
+                exposed = sorted({int(str(k).split("/")[0]) for k in (g(cfg, "ExposedPorts") or {})
+                                  if str(k).split("/")[0].isdigit()})
+                recs, _ = parse_container(merged, ename, nets, ehost)
+                for r in recs:
+                    r["extra"]["exposed"] = exposed
+                out.extend(recs)
+        return out
+
     def fetch(self):
         out = []
         for env in self.environments():

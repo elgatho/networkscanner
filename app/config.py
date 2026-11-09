@@ -77,6 +77,8 @@ DEFAULTS = {
     "nmap_max_rate": 100,
     "max_scan_hosts": 4096,
     "free_after_hours": 168,
+    "search_fallback_enabled": True,  # dashboard search with no match -> open SearXNG results
+    "search_url": "http://search.lan",
 }
 SECRETS = {"dockhand_token", "proxmox_token_secret", "esphome_dashboard_password",
            "esphome_noise_psk", "esphome_api_password", "opnsense_key", "opnsense_secret",

@@ -49,6 +49,16 @@ class SourceRecord(Base):
     updated_at: Mapped[object] = mapped_column(DateTime, default=utcnow)
 
 
+class ServiceLink(Base):
+    """One dashboard tile per container. `auto` = read from Dockhand (on creation / refresh);
+    `override` = fields edited by hand (never overwritten by a refresh)."""
+    __tablename__ = "service_links"
+    key: Mapped[str] = mapped_column(String(300), primary_key=True)  # "<environment>|<container id>"
+    auto: Mapped[dict] = mapped_column(JSON, default=dict)
+    override: Mapped[dict] = mapped_column(JSON, default=dict)
+    seen_at: Mapped[object] = mapped_column(DateTime, default=utcnow)
+
+
 class SourceStatus(Base):
     __tablename__ = "source_status"
     source: Mapped[str] = mapped_column(String(20), primary_key=True)
