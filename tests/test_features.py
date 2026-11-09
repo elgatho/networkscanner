@@ -245,6 +245,15 @@ def _container(s, cid, name, image, ports, labels=None, host="docker1.lan"):
     s.commit()
 
 
+def test_service_port_fallback_and_override(s):
+    _container(s, "c5", "nopub", "nginx", [])
+    _container(s, "c6", "custom", "app", [{"ip": "0.0.0.0", "public": 9000, "private": 80, "type": "tcp"}],
+               labels={"dashboard.port": "3000"})
+    urls = {x["name"]: x["url"] for x in services.build_services(s)}
+    assert urls["nopub"] == "http://docker1.lan:80"
+    assert urls["custom"] == "http://docker1.lan:3000"
+
+
 def test_build_services_links_labels_and_hide(s):
     pub = [{"ip": "0.0.0.0", "public": 8096, "private": 8096, "type": "tcp"}]
     _container(s, "c1", "jellyfin", "jellyfin/jellyfin", pub)
@@ -256,10 +265,11 @@ def test_build_services_links_labels_and_hide(s):
                                                          "dashboard.description": "Docs"})
     out = services.build_services(s)
     names = [x["name"] for x in out]
-    assert names == ["jellyfin", "wiki"]  # db hidden, nas loopback-only and no url -> skipped, c1 deduped
+    assert names == ["jellyfin", "nas", "wiki"]  # db hidden, c1 deduped; nas (loopback only) falls back to :80
     jelly = out[0]
     assert jelly["url"] == "http://docker1.lan:8096" and jelly["category"] == "Media"
-    assert out[1]["url"] == "https://wiki.lan" and out[1]["description"] == "Docs"
+    assert out[1]["url"] == "http://docker1.lan:80"
+    assert out[2]["url"] == "https://wiki.lan" and out[2]["description"] == "Docs"
 
 
 def test_build_proxmox_stats_and_node_excluded_from_devices(s):
