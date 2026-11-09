@@ -110,7 +110,7 @@ function homeStats(){const p=HOME.proxmox;let h;
 function tileHtml(x){const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
  const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
  const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
-    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
+    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited&&EDIT?' · <span class="badge">edytowany</span>':''}</div></div>`;
  if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" draggable="true" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj (przeciągnij, aby zmienić kategorię)">${inner}</div>`;
  if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
  return `<a class="${cls}" data-k="${esc(x.key)}" onclick="recordOpen(this.dataset.k)" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}
@@ -129,7 +129,7 @@ function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
  if(!list.length){$('#hg').innerHTML='';return}
  const cats=[...new Set(list.map(x=>x.category))];
  $('#hg').innerHTML=cats.map(c=>{const items=list.filter(x=>x.category==c);
-  return `<div class="cat" data-cat="${esc(c)}"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles" data-cat="${esc(c)}">${items.map(tileHtml).join('')}</div>`}).join('');if(EDIT)bindDnD()}
+  return `<div class="cat" data-cat="${esc(c)}"><b>${esc(c)}</b><span class="lbl">${items.length}</span>${EDIT?`<button class="b" data-c="${esc(c)}" onclick="renameCat(this.dataset.c)" title="Zmień nazwę kategorii" style="padding:0 6px;font-size:12px;line-height:20px">✎</button>`:''}</div><div class="tiles" data-cat="${esc(c)}">${items.map(tileHtml).join('')}</div>`}).join('');if(EDIT)bindDnD()}
 // Drag and drop between categories (edit mode): drop a tile on a category header or on its tile grid.
 function bindDnD(){
  document.querySelectorAll('#hg .tile[draggable]').forEach(el=>{
@@ -142,6 +142,8 @@ function bindDnD(){
   z.ondrop=e=>{e.preventDefault();z.classList.remove('drop');moveTile(e.dataTransfer.getData('text/plain'),z.dataset.cat)};
  });
 }
+async function renameCat(old){const nw=prompt('Nowa nazwa kategorii',old);if(nw===null)return;const to=nw.trim();if(!to||to==old)return;
+ try{const r=await api('/dashboard/category/rename',{method:'POST',body:JSON.stringify({old,new:to})});toast('Zmieniono nazwę na „'+to+'” ('+r.count+')');homeView(true)}catch(e){toast(e.message)}}
 async function moveTile(k,cat){const x=HOME.services.find(s=>s.key==k);if(!x||!cat||x.category==cat)return;
  try{await api('/dashboard/move/'+encodeURIComponent(k),{method:'POST',body:JSON.stringify({category:cat})});toast('Przeniesiono do „'+cat+'”');homeView(true)}catch(e){toast(e.message)}}
 function editLink(k){const x=HOME.services.find(s=>s.key==k);if(!x)return;tileDialog(x)}
@@ -155,7 +157,7 @@ function tileDialog(x){const custom=!x||x.custom, a=(x&&!x.custom&&x.auto)||{}, 
  <label>Kategoria</label>${catSel}
  <label>Opis</label><input type="text" name="description" value="${esc(v.description)}">
  <label>Link</label><input type="text" name="url" value="${esc(v.url)}" placeholder="http://…">
- <label>Ikona (slug dashboard-icons lub URL)</label><input type="text" name="icon" value="${esc(v.icon)}">
+ <label>Ikona (slug dashboard-icons lub URL) · <a href="https://dashboardicons.com/" target="_blank" rel="noopener">przeglądaj ikony ↗</a></label><input type="text" name="icon" value="${esc(v.icon)}">
  <label class="c"><input type="checkbox" name="linkable" ${v.linkable?'checked':''}> Klikalny link</label>
  <label class="c"><input type="checkbox" name="hidden" ${v.hidden?'checked':''}> Ukryj na dashboardzie</label>
  ${custom?'':`<div class="lbl" style="margin-top:8px">Z Dockhand: link ${esc(a.url||'—')} · kategoria ${esc(a.category||'—')}</div>`}
@@ -238,14 +240,19 @@ const SET=[['Dashboard: najczęściej używane','',[['top_used_enabled','Pokazuj
 ['Conflicts','',[['ignore_host_mode_conflicts','Ignore conflicts caused by Docker host-network containers','b']]],
 ['Webhook notifications','webhook',[['webhook_enabled','Enabled','b'],['webhook_url','Webhook URL','p'],['webhook_auth_header','Authorization header (optional)','p'],['webhook_events','Events (new_host,mac_changed,ip_changed,online,offline,conflict,source_down)'],['webhook_verify_tls','Verify TLS','b']]],
 ['Scanning','',[['discovery_interval','Ping/ARP discovery interval (min)','n'],['full_scan_interval','Full subnet scan interval (min)','n'],['reverse_dns','Reverse DNS','b'],['arp_scan','Also use arp-scan','b'],['port_scan','Port scan alive hosts','b'],['port_list','Ports'],['nmap_max_rate','Max packets/s','n'],['max_scan_hosts','Max hosts per subnet scan','n'],['free_after_hours','Treat silent hosts as taken for (h)','n']]]];
+// Settings sections grouped: 1 Integracje, 2 Konfiguracja dashboardu, 3 Inne (anything not listed goes to Inne)
+function setGroups(){const G=[['Integracje',[]],['Konfiguracja dashboardu',[]],['Inne',[]]];
+ const where={'Dockhand':0,'Proxmox VE':0,'ESPHome (optional)':0,'OPNsense (DHCP)':0,'AdGuard Home (DNS rewrites)':0,'UniFi (DHCP clients)':0,
+  'Dashboard: najczęściej używane':1,'Dashboard: wyszukiwanie':1};
+ SET.forEach(x=>G[where[x[0]]??2][1].push(x));return G}
 async function settingsView(){const a=await api('/auth/status');
  if(!a.authenticated)return loginView();
  let st;try{st=await api('/settings')}catch(x){if(x.login)return loginView();throw x}
  const src=D.src||await api('/sources'),rules=await api('/conflict-rules');
- $('#main').innerHTML=`<div class="card" style="margin-bottom:12px"><b>Dashboard: kafelki z Dockhand</b> <button type="button" class="b" onclick="dashRefresh()" style="float:right">Odśwież teraz</button><div class="lbl">Adresy IP, porty i etykiety kontenerów są odczytywane przy dodaniu kontenera i po odświeżeniu. Ręczne zmiany kafelków są zachowywane.</div></div>
-<form id="stf" class="grid g2 f">${SET.map(([t,id,fs])=>`<details class="card set"><summary><b>${t}</b></summary> ${id?`<button type="button" class="b" data-t="${id}" style="float:right">Test connection</button><div class="lbl" data-st="${id}">${(()=>{const x=src.find(y=>y.source==id);return x?(x.ok?'✓ ok, '+x.count+' records, '+ago(x.last_ok):'✗ '+esc(x.error)):''})()}</div>`:''}
- ${fs.map(([k,l,ty])=>ty=='b'?`<label class="c"><input type="checkbox" name="${k}" ${st[k]?'checked':''}> ${l}</label>`:`<label>${l}</label><input type="${ty=='p'?'password':ty=='n'?'number':'text'}" name="${k}" value="${esc(st[k])}" ${ty=='p'?'autocomplete="new-password"':''}>`).join('')}</details>`).join('')}
- <div><button class="b p">Save settings</button></div></form>
+ $('#main').innerHTML=`<div class="bar-f" style="justify-content:flex-end;margin:0 0 12px"><button class="b p" form="stf">Zapisz ustawienia</button></div>
+<div class="card" style="margin-bottom:12px"><b>Dashboard: kafelki z Dockhand</b> <button type="button" class="b" onclick="dashRefresh()" style="float:right">Odśwież teraz</button><div class="lbl">Adresy IP, porty i etykiety kontenerów są odczytywane przy dodaniu kontenera i po odświeżeniu. Ręczne zmiany kafelków są zachowywane.</div></div>
+<form id="stf" class="grid g2 f">${setGroups().map(([gname,items])=>`<div class="cat" style="grid-column:1/-1"><b>${gname}</b></div>`+items.map(([t,id,fs])=>`<details class="card set"><summary><b>${t}</b></summary> ${id?`<button type="button" class="b" data-t="${id}" style="float:right">Test connection</button><div class="lbl" data-st="${id}">${(()=>{const x=src.find(y=>y.source==id);return x?(x.ok?'✓ ok, '+x.count+' records, '+ago(x.last_ok):'✗ '+esc(x.error)):''})()}</div>`:''}
+ ${fs.map(([k,l,ty])=>ty=='b'?`<label class="c"><input type="checkbox" name="${k}" ${st[k]?'checked':''}> ${l}</label>`:`<label>${l}</label><input type="${ty=='p'?'password':ty=='n'?'number':'text'}" name="${k}" value="${esc(st[k])}" ${ty=='p'?'autocomplete="new-password"':''}>`).join('')}</details>`).join('')).join('')}</form>
  <div class="card" style="margin-top:12px"><b>Silenced conflicts</b>${rules.length?`<table>${rules.map(r=>`<tr><td>${esc(r.ip||'')}</td><td>${esc(r.mac||'')}</td><td>${esc(r.note)}</td><td><button class="b" onclick="delRule(${r.id})">Remove</button></td></tr>`).join('')}</table>`:'<div class="lbl">none — use “Ignore” next to a conflict on the dashboard</div>'}</div>
  <div class="card" style="margin-top:12px"><b>Settings password</b>${!a.configured?'<div class="warn">⚠ No password set: anyone who can open this page can read/change settings.</div>':''}${a.env_managed?'<div class="lbl">Managed by SETTINGS_PASSWORD env variable.</div>':`<form id="pwf" class="f">${a.configured?'<label>Current password</label><input type="password" name="cur" autocomplete="current-password">':''}<label>New password (min 8 chars)</label><input type="password" name="new" autocomplete="new-password"><button class="b p">${a.configured?'Change':'Set'} password</button></form>`}${a.configured?'<button class="b" onclick="logout()" style="margin-top:8px">Log out</button>':''}</div>`;
  const pwf=$('#pwf');if(pwf)pwf.onsubmit=async e=>{e.preventDefault();const f=new FormData(pwf);try{await api('/auth/password',{method:'POST',body:JSON.stringify({password:f.get('cur')||f.get('new'),new_password:f.get('new')})});toast('Password saved');render(true)}catch(x){toast(x.message)}};

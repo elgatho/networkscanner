@@ -305,6 +305,22 @@ def record_open(s, key: str) -> int:
     return row.count
 
 
+def rename_category(s, old: str, new: str) -> int:
+    """Rename a category: every tile in `old` moves to `new` (stored as an override). Returns tiles changed."""
+    new = str(new or "").strip()
+    if not new:
+        raise ValueError("Podaj nazwę kategorii")
+    n = 0
+    for row in s.scalars(select(ServiceLink)):
+        ov = row.override or {}
+        m = {**(row.auto or {}), **ov}
+        if (m.get("category") or DEFAULT_CATEGORY) == old and old != new:
+            row.override = {**ov, "category": new}  # new dict so the JSON change is saved
+            n += 1
+    s.commit()
+    return n
+
+
 def add_custom(s, data: dict) -> str:
     """Create a hand-made tile (not tied to any container). Returns its key."""
     clean = _clean(data)

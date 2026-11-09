@@ -508,3 +508,15 @@ def test_open_route_and_delete_clears_count(tmp_path, monkeypatch):
         assert c.post("/api/dashboard/open/custom|missing").status_code == 404
         assert c.delete("/api/dashboard/links/" + key).status_code == 200
         assert c.post("/api/dashboard/open/" + key).status_code == 404
+
+
+def test_rename_category_moves_all_its_tiles(s):
+    from app.services import add_custom, rename_category
+    add_custom(s, {"name": "Alpha", "category": "Media", "url": "http://a.lan"})
+    add_custom(s, {"name": "Beta", "category": "Media", "url": "http://b.lan"})
+    add_custom(s, {"name": "Gamma", "category": "Other", "url": "http://g.lan"})
+    assert rename_category(s, "Media", "Filmy") == 2
+    cats = {x["name"]: x["category"] for x in services.build_services(s)}
+    assert cats == {"Alpha": "Filmy", "Beta": "Filmy", "Gamma": "Other"}
+    with pytest.raises(ValueError):
+        rename_category(s, "Filmy", "  ")

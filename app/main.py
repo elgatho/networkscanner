@@ -196,6 +196,21 @@ def move_link(key: str, body: CategoryIn, s=Depends(session)):
     return {"ok": True}
 
 
+class RenameCategoryIn(BaseModel):
+    old: str
+    new: str
+
+
+@app.post("/api/dashboard/category/rename")
+def rename_category(body: RenameCategoryIn, s=Depends(session)):
+    """Rename a dashboard category (edit mode): all its tiles move to the new name."""
+    try:
+        n = services.rename_category(s, body.old, body.new)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True, "count": n}
+
+
 @app.post("/api/dashboard/links")
 def add_link(body: LinkIn, s=Depends(session)):
     """Create a hand-made tile."""
