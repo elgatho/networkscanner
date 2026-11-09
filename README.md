@@ -30,6 +30,14 @@ Update: `git pull; docker compose up -d --build` (data lives in volume `scanner-
 - DHCP sources mark addresses as used (so they are never offered as free) but never cause name conflicts.
 - TLS verification is on by default; per-integration CA bundle path available.
 
+## Dashboard (first tab)
+
+- **Proxmox overview**: nodes online, VMs/LXC running, CPU, RAM and disk per cluster and per node (from `/cluster/resources`).
+- **Services**: Docker containers from Dockhand that publish a port, grouped by category, shown as tiles with icon, description and link, with a search box. Link = `http://<environment host>:<published port>`.
+  Optional container labels (set on the container / in compose):
+  `dashboard.url` (full link), `dashboard.name`, `dashboard.category`, `dashboard.description`, `dashboard.icon` (dashboard-icons slug or image URL), `dashboard.hide=true`.
+  Icons load from the dashboard-icons CDN (jsdelivr); a letter is shown when an icon is missing.
+
 ## First available IP
 Skips network/broadcast, gateway, all source IPs, manual reservations, exclusions, hosts alive, with an ARP/NDP entry, or seen within `free_after_hours` (168). Confidence: HIGH (all checks available), MEDIUM (a source failing or no L2 evidence), LOW (no recent full scan, stale, or recent loss). It is a recommendation: an external DHCP server may still hold the address.
 

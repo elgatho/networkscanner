@@ -25,13 +25,24 @@ button.b{cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:va
 dialog{border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);max-width:760px;width:94%}
 label{display:block;margin:6px 0 2px;color:var(--mut);font-size:12px}label.c{display:flex;gap:6px;align-items:center;color:var(--tx)}.f input[type=text],.f input[type=password],.f input[type=number],.f textarea{width:100%}
 .kv td:first-child{color:var(--mut);width:140px}#toast{position:fixed;bottom:16px;right:16px;background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none}
-@media(max-width:600px){.big{font-size:30px}}
+.hbar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden;margin:4px 0}.hbar i{display:block;height:100%;background:var(--ac)}.hbar i.hi{background:var(--warn)}.hbar i.hx{background:var(--bad)}
+.node{display:grid;grid-template-columns:minmax(90px,140px) 1fr;gap:4px 12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)}.node:last-child{border:0}
+.cat{margin:18px 0 8px;display:flex;align-items:baseline;gap:8px}.cat b{font-size:15px}
+.tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.tile{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;color:var(--tx);text-decoration:none;min-width:0}
+.tile:hover{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 6%,var(--card))}
+.tile .ic{width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center}.tile .ic img{width:44px;height:44px;object-fit:contain}
+.tile .ltr{display:none;width:44px;height:44px;border-radius:10px;background:var(--ac);color:#fff;font-weight:700;font-size:20px;align-items:center;justify-content:center}
+.tile .tx{min-width:0;flex:1}.tile .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .ds{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tile .hs{color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:4px}.dot.run{background:var(--ok)}
+@media(max-width:600px){.big{font-size:30px}.tiles{grid-template-columns:1fr 1fr}}
 </style></head><body>
 <header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
 <main id="main"></main><dialog id="dlg"></dialog><div id="toast"></div>
 <script>
 const $=(s,e=document)=>e.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let TOKEN=localStorage.getItem('tok')||'', tab='dash', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false};
+let TOKEN=localStorage.getItem('tok')||'', tab='home', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false,hq:''}, HOME=null;
 async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Access-Token':TOKEN,...(o.headers||{})};
  const r=await fetch('/api'+p,o); const j=await r.json().catch(()=>({}));
  if(r.status==401&&j.detail=='settings login required'){const e=new Error(j.detail);e.login=true;throw e}
@@ -39,12 +50,44 @@ async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Acces
  if(!r.ok) throw new Error(j.detail||r.statusText); return j}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 const ago=s=>{if(!s)return'never';const d=(Date.now()-new Date(s))/1000;return d<90?'just now':d<5400?Math.round(d/60)+' min ago':d<172800?Math.round(d/3600)+' h ago':Math.round(d/86400)+' d ago'};
-$('#nav').innerHTML=[['dash','Dashboard'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
+$('#nav').innerHTML=[['home','Dashboard'],['dash','IP Table'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
 $('#nav').onclick=e=>{if(e.target.dataset.k){tab=e.target.dataset.k;render(true)}};
 async function load(){[D.sum,D.ips,D.subs,D.src]=await Promise.all([api('/summary'),api('/ips'),api('/subnets'),api('/sources')]);$('#upd').textContent='updated '+new Date().toLocaleTimeString()}
 async function render(force){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.k==tab));
  if(tab=='settings'){return settingsView()} if(tab=='events'){return eventsView()}
+ if(tab=='home'){return homeView(force)}
  if(force||!D.sum) await load(); if(tab=='dash')dashView(); else subnetsView()}
+const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
+const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
+async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Search services (name, category, description, host)…" style="flex:1;min-width:220px"></div><div id="hg"></div>';
+  $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()}}
+ homeStats(); homeGrid()}
+function homeStats(){const p=HOME.proxmox;let h;
+ if(!p.configured){h=`<div class="card"><div class="lbl">PROXMOX</div>Proxmox nie jest skonfigurowany — dodaj go w Settings.</div>`}
+ else{const sub=(a,b)=>`<div class="card"><div class="lbl">${a}</div><div class="num">${b}</div></div>`;
+  const cpu=p.cpu_pct==null?'—':p.cpu_pct+'%', mp=pct(p.mem_used,p.mem_total), dp=pct(p.disk_used,p.disk_total);
+  h=`<div class="lbl" style="margin-bottom:6px">PROXMOX${p.cluster?' · '+esc(p.cluster):''} ${p.ok?'':`<span class="LOW">⚠ ${esc(p.error||'błąd połączenia')}</span>`} · ${p.last_ok?'ok '+ago(p.last_ok):''}</div>
+  <div class="grid g4">${sub('Nodes online',`<span class="${p.nodes_online==p.nodes_total?'ONLINE':'LOW'}">${p.nodes_online}/${p.nodes_total}</span>`)}
+  ${sub('VMs running',`${p.vms_running}<span class="lbl"> / ${p.vms_total}</span>`)}${sub('LXC running',`${p.lxc_running}<span class="lbl"> / ${p.lxc_total}</span>`)}
+  ${sub('CPU',cpu+(p.cores?` <span class="lbl">${p.cores} cores</span>`:''))}
+  <div class="card"><div class="lbl">RAM</div><div class="num">${mp}%</div>${bar(mp)}<div class="lbl">${fmtB(p.mem_used)} / ${fmtB(p.mem_total)}</div></div>
+  <div class="card"><div class="lbl">Disk</div><div class="num">${dp}%</div>${bar(dp)}<div class="lbl">${fmtB(p.disk_used)} / ${fmtB(p.disk_total)}</div></div></div>`;
+  if(p.nodes.length){h+=`<div class="card" style="margin-top:12px">${p.nodes.map(n=>{m=pct(n.mem,n.maxmem),d=pct(n.disk,n.maxdisk);
+   return `<div class="node"><div><b>${esc(n.node)}</b><div class="${n.status=='online'?'ONLINE':'OFFLINE'}" style="font-size:12px">${esc(n.status)}${n.uptime?' · up '+Math.floor(n.uptime/86400)+'d':''}</div></div>
+   <div class="grid g2" style="gap:8px"><div><span class="lbl">CPU ${Math.round((n.cpu||0)*100)}%</span>${bar(Math.round((n.cpu||0)*100))}</div><div><span class="lbl">RAM ${m}% · ${fmtB(n.mem)}/${fmtB(n.maxmem)}</span>${bar(m)}</div><div><span class="lbl">Disk ${d}%</span>${bar(d)}</div></div></div>`}).join('')}</div>`}
+ }
+ $('#hs').innerHTML=h}
+function homeGrid(){const q=(F.hq||'').trim().toLowerCase();
+ const list=HOME.services.filter(x=>!q||[x.name,x.category,x.description,x.url,x.environment].join(' ').toLowerCase().includes(q));
+ if(!HOME.services.length){$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem pojawią się tutaj (lub ustaw label <code>dashboard.url</code>).</div>`;return}
+ if(!list.length){$('#hg').innerHTML=`<div class="card">Brak wyników dla „${esc(F.hq)}”.</div>`;return}
+ const cats=[...new Set(list.map(x=>x.category))];
+ $('#hg').innerHTML=cats.map(c=>{const items=list.filter(x=>x.category==c);
+  return `<div class="cat"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles">${items.map(x=>{const host=x.url.replace(/^https?:\/\//,'');
+   return `<a class="tile" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">
+    <div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
+    <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="ds">${esc(x.description)}</div><div class="hs">${esc(host)}</div></div></a>`}).join('')}</div>`}).join('')}
 function ffCard(f,main){const w=(f.warnings||[]).map(x=>`<div class="warn">⚠ ${esc(x)}</div>`).join('');
  return `<div class="card ${main?'main':''}"><div class="lbl">${main?'FIRST AVAILABLE IP':'First available'} · ${esc(f.subnet)}</div>
  <div class="${main?'big':'mid'}">${f.ip?esc(f.ip):'— none —'}</div>
@@ -123,5 +166,5 @@ async function ignoreConflict(ip,mac){const note=prompt('Silence conflict on '+i
 async function exportCsv(){const qs=new URLSearchParams();for(const k of['q','subnet','vlan','status','source'])if(F[k])qs.set(k,F[k]);
  const r=await fetch('/api/export/ips.csv?'+qs,{headers:{'X-Access-Token':TOKEN}});if(!r.ok)return toast('Export failed: '+r.status);
  const u=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=u;a.download='ip-addresses.csv';a.click();URL.revokeObjectURL(u)}
-render(true);setInterval(()=>{if(tab=='dash'||tab=='subnets')render(true)},30000);
+render(true);setInterval(()=>{if(tab=='dash'||tab=='subnets')render(true);else if(tab=='home')homeView(true)},30000);
 </script></body></html>

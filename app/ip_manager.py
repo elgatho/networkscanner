@@ -288,7 +288,7 @@ def no_ip_records(s, entries):
     """Source devices (Proxmox VM/LXC, containers...) that have no usable IP and were not matched by MAC."""
     seen_macs = {e["mac"] for e in entries.values() if e["mac"]}
     out = {}
-    for r in s.scalars(select(SourceRecord).where(SourceRecord.ip.is_(None))):
+    for r in s.scalars(select(SourceRecord).where(SourceRecord.ip.is_(None), SourceRecord.kind != "node")):
         if r.mac and r.mac in seen_macs:
             continue
         out[(r.source, r.kind, r.name)] = {"source": r.source, "kind": r.kind, "name": r.name, "mac": r.mac,

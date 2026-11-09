@@ -203,3 +203,100 @@ def db_cfg(**kw):
     d = dict(config.DEFAULTS)
     d.update(kw)
     return d
+
+
+# ---- Dashboard: Docker ports / labels, services tiles, Proxmox overview ----
+
+from app import services  # noqa: E402
+from app.dockhand_connector import parse_container, parse_ports  # noqa: E402
+
+
+def test_parse_ports_all_docker_shapes():
+    assert parse_ports(["0.0.0.0:8080->80/tcp", "5432/tcp"]) == [
+        {"ip": "0.0.0.0", "public": 8080, "private": 80, "type": "tcp"}]
+    assert parse_ports([{"IP": "0.0.0.0", "PrivatePort": 80, "PublicPort": 8096, "Type": "tcp"},
+                        {"PrivatePort": 22}]) == [{"ip": "0.0.0.0", "public": 8096, "private": 80, "type": "tcp"}]
+    assert parse_ports({"80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8081"}], "9/tcp": None})[0]["public"] == 8081
+
+
+def test_parse_container_keeps_only_dashboard_labels():
+    c = {"Id": "abc", "Names": ["/jelly"], "Image": "jellyfin/jellyfin:latest", "State": {"Status": "running"},
+         "Ports": [{"IP": "0.0.0.0", "PrivatePort": 8096, "PublicPort": 8096, "Type": "tcp"}],
+         "Labels": {"dashboard.category": "Media", "other": "x"},
+         "NetworkSettings": {"Networks": {"bridge": {"IPAddress": "172.17.0.2"}}}}
+    recs, _ = parse_container(c, "local", {}, "docker1.lan")
+    assert recs[0]["extra"]["labels"] == {"dashboard.category": "Media"}
+    assert recs[0]["extra"]["env_host"] == "docker1.lan"
+    assert recs[0]["ip"] == "172.17.0.2"
+
+
+def test_categorize_and_icon():
+    assert services.categorize("lscr.io/linuxserver/sonarr:4", "sonarr") == "Media"
+    assert services.categorize("unknownthing", "x") == "Other"
+    assert services.categorize("unknownthing", "x", "Custom") == "Custom"
+    assert services.icon_url(None, "ghcr.io/x/jellyfin:10", "j").endswith("/jellyfin.png")
+    assert services.icon_url("https://e.x/i.svg", "", "") == "https://e.x/i.svg"
+
+
+def _container(s, cid, name, image, ports, labels=None, host="docker1.lan"):
+    extra = {"container_id": cid, "image": image, "environment": "local", "labels": labels or {},
+             "ports": ports, "env_host": host}
+    s.add(SourceRecord(source="dockhand", kind="container", name=name, state="running", extra=extra))
+    s.commit()
+
+
+def test_build_services_links_labels_and_hide(s):
+    pub = [{"ip": "0.0.0.0", "public": 8096, "private": 8096, "type": "tcp"}]
+    _container(s, "c1", "jellyfin", "jellyfin/jellyfin", pub)
+    _container(s, "c1", "jellyfin", "jellyfin/jellyfin", pub)  # second network record, same container
+    _container(s, "c2", "db", "postgres", [{"ip": "0.0.0.0", "public": 5432, "private": 5432, "type": "tcp"}],
+               labels={"dashboard.hide": "true"})
+    _container(s, "c3", "nas", "nginx", [{"ip": "127.0.0.1", "public": 9000, "private": 80, "type": "tcp"}])
+    _container(s, "c4", "wiki", "bookstack", [], labels={"dashboard.url": "https://wiki.lan",
+                                                         "dashboard.description": "Docs"})
+    out = services.build_services(s)
+    names = [x["name"] for x in out]
+    assert names == ["jellyfin", "wiki"]  # db hidden, nas loopback-only and no url -> skipped, c1 deduped
+    jelly = out[0]
+    assert jelly["url"] == "http://docker1.lan:8096" and jelly["category"] == "Media"
+    assert out[1]["url"] == "https://wiki.lan" and out[1]["description"] == "Docs"
+
+
+def test_build_proxmox_stats_and_node_excluded_from_devices(s):
+    subnet(s)
+    s.add(SourceStatus(source="proxmox", ok=True, last_ok=utcnow(), count=3))
+    s.add(SourceRecord(source="proxmox", kind="node", name="pve1", ip=None, state="online",
+                       extra={"cluster": "home", "cpu": 0.5, "maxcpu": 4, "mem": 2 * 2**30, "maxmem": 8 * 2**30,
+                              "disk": 10 * 2**30, "maxdisk": 100 * 2**30, "uptime": 90000}))
+    s.add(SourceRecord(source="proxmox", kind="node", name="pve2", ip=None, state="offline",
+                       extra={"cluster": "home", "cpu": 0, "maxcpu": 8, "mem": 0, "maxmem": 2**30,
+                              "disk": 0, "maxdisk": 2**30}))
+    R(s, "192.168.1.10", "proxmox", "web", "aa:aa:aa:aa:aa:10", kind="vm", state="running", extra={"vmid": 100, "node": "pve1"})
+    R(s, "192.168.1.10", "proxmox", "web", "aa:aa:aa:aa:aa:10", kind="vm", state="running", extra={"vmid": 100, "node": "pve1"})
+    R(s, None, "proxmox", "ct", None, kind="lxc", state="stopped", extra={"ctid": 101, "node": "pve1"})
+    p = services.build_proxmox(s)
+    assert p["nodes_total"] == 2 and p["nodes_online"] == 1
+    assert p["vms_running"] == 1 and p["vms_total"] == 1  # deduped NIC records
+    assert p["lxc_running"] == 0 and p["lxc_total"] == 1
+    assert p["cpu_pct"] == 50.0 and p["cores"] == 4  # cpu is a 0..1 fraction; only online nodes count
+    assert p["mem_total"] == 8 * 2**30 and p["ok"] is True
+    # node records have no IP: they must not be listed as devices without IP
+    assert all(x["name"] != "pve1" for x in ipm.summary(s).get("no_ip", []))
+
+
+def test_dashboard_api_route(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main.scheduler.sched, "start", lambda: None)
+    monkeypatch.setattr(main.scheduler.sched, "shutdown", lambda **k: None)
+    monkeypatch.setattr(main.scheduler, "reschedule", lambda: None)
+    monkeypatch.setattr(main.dd, "refresh_source", lambda n: None)
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    with TestClient(main.app) as c:
+        with db.SessionLocal() as s:
+            _container(s, "c1", "jellyfin", "jellyfin/jellyfin",
+                       [{"ip": "0.0.0.0", "public": 8096, "private": 8096, "type": "tcp"}])
+        r = c.get("/api/dashboard")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["proxmox"]["configured"] is False
+        assert body["services"][0]["name"] == "jellyfin"

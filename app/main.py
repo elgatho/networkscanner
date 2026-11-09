@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 
 import csv
 import io
-from . import auth as authmod, config, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler
+from . import auth as authmod, config, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler, services
 from .database import ConflictRule, Event, Reservation, ScanResult, ScanRun, SourceRecord, SourceStatus, Subnet
 from .util import iso, norm_ip, norm_mac
 
@@ -127,6 +127,11 @@ def health(s=Depends(session)):
 @app.get("/api/summary")
 def get_summary(s=Depends(session)):
     return ipm.summary(s)
+
+
+@app.get("/api/dashboard")
+def get_dashboard(s=Depends(session)):
+    return services.dashboard(s)
 
 
 @app.get("/api/ips")

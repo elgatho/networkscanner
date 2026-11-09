@@ -96,7 +96,21 @@ class ProxmoxConnector:
                                     "ip": None, "mac": None, "state": g_.get("status"),
                                     "extra": {"vmid": g_["vmid"], "node": node, "cluster": cluster,
                                               "error": str(e)}})
+        out.extend(self._node_stats(cluster))
         return out
+
+    def _node_stats(self, cluster):
+        """kind=node records (no IP, so they never show up as devices) carry CPU/RAM/disk for the dashboard."""
+        try:
+            nodes = self.get("/cluster/resources?type=node") or []
+        except Exception:
+            return []
+        return [{"source": "proxmox", "kind": "node", "name": n.get("node") or "?", "ip": None, "mac": None,
+                 "state": n.get("status"),
+                 "extra": {"cluster": cluster, "cpu": n.get("cpu"), "maxcpu": n.get("maxcpu"),
+                           "mem": n.get("mem"), "maxmem": n.get("maxmem"), "disk": n.get("disk"),
+                           "maxdisk": n.get("maxdisk"), "uptime": n.get("uptime")}}
+                for n in nodes]
 
     def _guest(self, cluster, node, kind, path, gst):
         vmid, running = gst["vmid"], gst.get("status") == "running"

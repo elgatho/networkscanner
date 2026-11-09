@@ -8,6 +8,9 @@ tolerant: Docker-style (NetworkSettings.Networks) or flat 'networks' maps, any
 key casing. When the list lacks network data, /inspect is used. An optional
 Docker Engine API URL is used as fallback.
 """
+import re
+from urllib.parse import urlparse
+
 import httpx
 from .util import norm_ip, norm_mac
 
@@ -42,7 +45,43 @@ def client(url, verify, ca, headers, timeout=15, fingerprint=""):
                         verify=verify if fingerprint else (ca if ca else verify), timeout=timeout)
 
 
-def parse_container(c, env_name, nets_info):
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_ports(v):
+    """Published ports -> [{ip, public, private, type}]. Accepts Docker list form, "h:p->c/t" strings
+    and inspect form {"80/tcp": [{"HostIp", "HostPort"}]}. Unpublished ports are dropped."""
+    out = []
+    if isinstance(v, list):
+        for p in v:
+            if isinstance(p, dict):
+                pub = _int(g(p, "PublicPort"))
+                if pub:
+                    out.append({"ip": g(p, "IP") or "", "public": pub, "private": _int(g(p, "PrivatePort")),
+                                "type": str(g(p, "Type") or "tcp").lower()})
+            elif isinstance(p, str):
+                m = re.match(r"(?:(\[[^\]]*\]|[\d.]+):)?(\d+)->(\d+)/(\w+)", p)
+                if m:
+                    out.append({"ip": (m.group(1) or "").strip("[]"), "public": int(m.group(2)),
+                                "private": int(m.group(3)), "type": m.group(4).lower()})
+    elif isinstance(v, dict):
+        for key, binds in v.items():
+            if not isinstance(binds, list):
+                continue
+            for b in binds:
+                pub = _int(g(b, "HostPort")) if isinstance(b, dict) else None
+                if pub:
+                    out.append({"ip": g(b, "HostIp") or "", "public": pub,
+                                "private": _int(str(key).split("/")[0]),
+                                "type": str(key).split("/")[-1].lower()})
+    return out
+
+
+def parse_container(c, env_name, nets_info, env_host=""):
     """Turn a Docker-like container/inspect dict into records (one per IP)."""
     cid = g(c, "Id", "ID", "containerId") or ""
     names = g(c, "Names", "Name")
@@ -54,6 +93,10 @@ def parse_container(c, env_name, nets_info):
     state = g(st, "Status") if isinstance(st, dict) else st
     host_cfg = g(c, "HostConfig") or {}
     mode = g(host_cfg, "NetworkMode") or g(c, "NetworkMode", "networkType") or ""
+    labels = g(c, "Labels") or g(cfg, "Labels") or {}
+    # only the dashboard.* labels are kept (links/category/icon/description for the Services page)
+    dash = {str(k): str(v) for k, v in labels.items() if str(k).startswith("dashboard.")} if isinstance(labels, dict) else {}
+    ports = parse_ports(g(c, "Ports") or g(ns_of(c), "Ports") or [])
     ns = g(c, "NetworkSettings") or {}
     networks = g(ns, "Networks") or g(c, "Networks") or {}
     if isinstance(networks, list):  # [{name:..., ip...}]
@@ -71,12 +114,17 @@ def parse_container(c, env_name, nets_info):
                                        "net_driver": info.get("driver"),
                                        "net_subnets": info.get("subnets"),
                                        "net_gateways": info.get("gateways"),
-                                       "gateway": g(n, "Gateway", "IPv6Gateway")}})
+                                       "gateway": g(n, "Gateway", "IPv6Gateway"),
+                                       "ports": ports, "labels": dash, "env_host": env_host}})
     if not recs:  # host mode / none / stopped: keep the container as a device without IP
         recs.append({**base, "ip": None, "mac": None,
                      "extra": {"container_id": cid, "image": image, "environment": env_name,
-                               "network_mode": mode}})
+                               "network_mode": mode, "ports": ports, "labels": dash, "env_host": env_host}})
     return recs, bool(networks)
+
+
+def ns_of(c):
+    return g(c, "NetworkSettings") or {}
 
 
 def parse_networks(nets):
@@ -114,18 +162,20 @@ class DockhandConnector:
         out = []
         for env in self.environments():
             eid, ename = g(env, "id"), g(env, "name") or str(g(env, "id"))
+            # host the containers' published ports live on; Dockhand URL host when the env does not say
+            ehost = g(env, "host", "hostname", "address") or urlparse(self.cfg["dockhand_url"]).hostname or ""
             try:
                 nets = parse_networks(as_list(self._get("/api/networks", env=eid), "networks", "data"))
             except Exception:
                 nets = {}
             for c in as_list(self._get("/api/containers", env=eid), "containers", "data"):
-                recs, had_nets = parse_container(c, ename, nets)
+                recs, had_nets = parse_container(c, ename, nets, ehost)
                 if not had_nets:
                     cid = g(c, "Id", "ID")
                     try:
                         insp = self._get(f"/api/containers/{cid}/inspect", env=eid)
                         merged = {**c, **insp} if isinstance(insp, dict) else c
-                        recs, _ = parse_container(merged, ename, nets)
+                        recs, _ = parse_container(merged, ename, nets, ehost)
                     except Exception:
                         pass
                 out.extend(recs)
