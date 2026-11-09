@@ -171,6 +171,22 @@ def edit_link(key: str, body: LinkIn, s=Depends(session)):
     return {"ok": True}
 
 
+class CategoryIn(BaseModel):
+    category: str
+
+
+@app.post("/api/dashboard/move/{key:path}")
+def move_link(key: str, body: CategoryIn, s=Depends(session)):
+    """Move a tile to another category (drag and drop on the dashboard)."""
+    try:
+        services.set_category(s, key, body.category)
+    except LookupError:
+        _404()
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
 @app.post("/api/dashboard/links")
 def add_link(body: LinkIn, s=Depends(session)):
     """Create a hand-made tile."""

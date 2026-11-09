@@ -31,6 +31,7 @@ details.set{margin-bottom:12px}details.set summary{cursor:pointer;list-style:non
 .node{display:grid;grid-template-columns:minmax(90px,140px) 1fr;gap:4px 12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)}.node:last-child{border:0}
 .cat{margin:18px 0 8px;display:flex;align-items:baseline;gap:8px}.cat b{font-size:15px}
 .tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.tiles.drop,.cat.drop{outline:2px dashed var(--ac);outline-offset:4px;border-radius:10px}.tile.drag{opacity:.4}
 .tile{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;color:var(--tx);text-decoration:none;min-width:0}
 .tile:hover{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 6%,var(--card))}
 .tile .ic{width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center}.tile .ic img{width:44px;height:44px;object-fit:contain}
@@ -40,6 +41,19 @@ details.set{margin-bottom:12px}details.set summary{cursor:pointer;list-style:non
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:4px}.dot.run{background:var(--ok)}
 footer{text-align:center;color:var(--mut);font-size:12px;padding:18px 16px 24px}
 @media(max-width:600px){.big{font-size:30px}.tiles{grid-template-columns:1fr 1fr}}
+/* mobile layout: class body.mobile is set by the script below (phone-sized screen or touch device) */
+body.mobile header{padding:8px 12px}body.mobile header h1{font-size:15px;margin:0 auto 0 0}body.mobile #upd{font-size:10px}
+body.mobile nav{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:space-around;background:var(--card);border-top:1px solid var(--bd);padding:4px 4px calc(4px + env(safe-area-inset-bottom))}
+body.mobile nav button{flex:1;padding:8px 2px;font-size:12px;min-width:0}
+body.mobile main{padding:12px 12px 84px}body.mobile .card{padding:12px}body.mobile .big{font-size:30px}
+body.mobile .g2{grid-template-columns:1fr}body.mobile .g4{grid-template-columns:1fr 1fr}body.mobile .hero .card{flex-basis:100%}
+body.mobile .tiles{grid-template-columns:1fr 1fr;gap:8px}body.mobile .tile{padding:10px;gap:8px}
+body.mobile .tile .ic,body.mobile .tile .ic img,body.mobile .tile .ltr{width:36px;height:36px;flex-basis:36px}
+body.mobile .bar-f{gap:6px}body.mobile .bar-f input{min-width:0!important}
+body.mobile th,body.mobile td{padding:5px 6px}body.mobile .scroll{max-height:none}
+body.mobile dialog{max-width:100%;width:100%;max-height:100%;height:100%;margin:0;border-radius:0;padding:12px}
+body.mobile input,body.mobile select,body.mobile textarea{font-size:16px}
+body.mobile #toast{bottom:76px;left:12px;right:12px;text-align:center}
 </style></head><body>
 <header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
 <main id="main"></main><footer id="ver"></footer><dialog id="dlg"></dialog><div id="toast"></div>
@@ -53,6 +67,10 @@ async function api(p,o={}){o.headers={'Content-Type':'application/json','X-Acces
  if(!r.ok) throw new Error(j.detail||r.statusText); return j}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 const ago=s=>{if(!s)return'never';const d=(Date.now()-new Date(s))/1000;return d<90?'just now':d<5400?Math.round(d/60)+' min ago':d<172800?Math.round(d/3600)+' h ago':Math.round(d/86400)+' d ago'};
+// Mobile layout is detected automatically: narrow screen, or a touch device with a small screen. Follows rotation/resizing.
+const MOBILE_MQ=matchMedia('(max-width:720px), (pointer:coarse) and (max-width:1024px)');
+const applyMobile=()=>document.body.classList.toggle('mobile',MOBILE_MQ.matches);
+applyMobile(); MOBILE_MQ.addEventListener('change',applyMobile);
 $('#nav').innerHTML=[['home','Dashboard'],['dash','IP Network'],['subnets','Subnets'],['events','History'],['settings','Settings']].map(([k,n])=>`<button data-k="${k}">${n}</button>`).join('');
 $('#nav').onclick=e=>{if(e.target.dataset.k){tab=e.target.dataset.k;render(true)}};
 async function load(){[D.sum,D.ips,D.subs,D.src]=await Promise.all([api('/summary'),api('/ips'),api('/subnets'),api('/sources')]);$('#upd').textContent='updated '+new Date().toLocaleTimeString()}
@@ -63,7 +81,7 @@ async function render(force){document.querySelectorAll('nav button').forEach(b=>
 const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
 async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
- if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hadd">+ Dodaj kafelek</button><span style="flex:1"></span><button class="b" id="hedit"></button></div>';
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hedit"></button><span style="flex:1"></span><button class="b" id="hadd">+ Dodaj kafelek</button></div>';
   $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
   $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
   $('#hadd').onclick=()=>tileDialog(null);
@@ -96,13 +114,27 @@ function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
  if(!list.length){$('#hg').innerHTML='';return}
  const cats=[...new Set(list.map(x=>x.category))];
  $('#hg').innerHTML=cats.map(c=>{const items=list.filter(x=>x.category==c);
-  return `<div class="cat"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles">${items.map(x=>{const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
+  return `<div class="cat" data-cat="${esc(c)}"><b>${esc(c)}</b><span class="lbl">${items.length}</span></div><div class="tiles" data-cat="${esc(c)}">${items.map(x=>{const host=(x.url||x.host||'').replace(/^https?:\/\//,'');
    const cls=`tile${x.hidden?' off':''}${x.linkable?'':' nolink'}`;
    const inner=`<div class="ic">${x.icon?`<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="ltr">${esc((x.name||'?')[0].toUpperCase())}</div>`:`<div class="ltr" style="display:flex">${esc((x.name||'?')[0].toUpperCase())}</div>`}</div>
     <div class="tx"><div class="nm"><span class="dot ${x.state=='running'?'run':''}"></span>${esc(x.name)}</div><div class="hs">${esc(host)}${x.hidden?' · <span class="badge">ukryty</span>':''}${x.edited?' · <span class="badge">edytowany</span>':''}</div></div>`;
-   if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj">${inner}</div>`;
+   if(EDIT) return `<div class="${cls}" data-k="${esc(x.key)}" draggable="true" onclick="editLink(this.dataset.k)" style="cursor:pointer" title="Edytuj (przeciągnij, aby zmienić kategorię)">${inner}</div>`;
    if(!x.linkable) return `<div class="${cls}" title="Bez linku">${inner}</div>`;
-   return `<a class="${cls}" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}).join('')}</div>`}).join('')}
+   return `<a class="${cls}" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.url)}">${inner}</a>`}).join('')}</div>`}).join('');if(EDIT)bindDnD()}
+// Drag and drop between categories (edit mode): drop a tile on a category header or on its tile grid.
+function bindDnD(){
+ document.querySelectorAll('#hg .tile[draggable]').forEach(el=>{
+  el.ondragstart=e=>{e.dataTransfer.setData('text/plain',el.dataset.k);e.dataTransfer.effectAllowed='move';el.classList.add('drag')};
+  el.ondragend=()=>{el.classList.remove('drag');document.querySelectorAll('#hg .drop').forEach(z=>z.classList.remove('drop'))};
+ });
+ document.querySelectorAll('#hg [data-cat]').forEach(z=>{
+  z.ondragover=e=>{e.preventDefault();e.dataTransfer.dropEffect='move';z.classList.add('drop')};
+  z.ondragleave=e=>{if(!z.contains(e.relatedTarget))z.classList.remove('drop')};
+  z.ondrop=e=>{e.preventDefault();z.classList.remove('drop');moveTile(e.dataTransfer.getData('text/plain'),z.dataset.cat)};
+ });
+}
+async function moveTile(k,cat){const x=HOME.services.find(s=>s.key==k);if(!x||!cat||x.category==cat)return;
+ try{await api('/dashboard/move/'+encodeURIComponent(k),{method:'POST',body:JSON.stringify({category:cat})});toast('Przeniesiono do „'+cat+'”');homeView(true)}catch(e){toast(e.message)}}
 function editLink(k){const x=HOME.services.find(s=>s.key==k);if(!x)return;tileDialog(x)}
 // Dialog for a tile: x = existing tile (container or hand-made), null = new hand-made tile.
 function tileDialog(x){const custom=!x||x.custom, a=(x&&!x.custom&&x.auto)||{}, v=x||{name:'',category:'Other',description:'',url:'',icon:'',linkable:true,hidden:false};

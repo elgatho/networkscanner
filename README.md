@@ -40,7 +40,7 @@ Update: `git pull; docker compose up -d --build` (data lives in volume `scanner-
   **Search**: Enter with no matching tile opens the query in SearXNG (`search_url`, default `http://search.lan`). Both are set in Settings → Dashboard.
   Optional container labels (set on the container / in compose):
   `dashboard.url` (full link), `dashboard.port`, `dashboard.name`, `dashboard.category`, `dashboard.description`, `dashboard.icon` (dashboard-icons slug or image URL), `dashboard.hide=true`.
-  Icons load from the dashboard-icons CDN (jsdelivr); a letter is shown when an icon is missing.
+  Icons come from [dashboardicons.com](https://dashboardicons.com) (the homarr-labs/dashboard-icons repo, via jsdelivr) and are cached locally in `DATA_DIR/icons`; a letter is shown when an icon is missing.
 
 ## First available IP
 Skips network/broadcast, gateway, all source IPs, manual reservations, exclusions, hosts alive, with an ARP/NDP entry, or seen within `free_after_hours` (168). Confidence: HIGH (all checks available), MEDIUM (a source failing or no L2 evidence), LOW (no recent full scan, stale, or recent loss). It is a recommendation: an external DHCP server may still hold the address.

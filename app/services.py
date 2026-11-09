@@ -30,7 +30,7 @@ from .util import iso, utcnow
 
 log = logging.getLogger(__name__)
 
-ICON_CDN = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/"
+ICON_CDN = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/"  # the repo behind dashboardicons.com
 DEFAULT_CATEGORY = "Other"
 EDITABLE = ("name", "category", "description", "url", "icon", "hidden", "linkable")
 CUSTOM_PREFIX = "custom|"
@@ -276,6 +276,19 @@ def set_override(s, key: str, data: dict) -> dict:
     row.override = clean
     s.commit()
     return clean
+
+
+def set_category(s, key: str, category: str) -> dict:
+    """Move one tile to another category (drag and drop). Other hand-made fields of the tile are kept."""
+    row = s.get(ServiceLink, key)
+    if row is None:
+        raise LookupError(key)
+    category = str(category or "").strip()
+    if not category:
+        raise ValueError("Podaj nazwę kategorii")
+    row.override = {**(row.override or {}), "category": category}  # new dict so the JSON change is saved
+    s.commit()
+    return row.override
 
 
 def add_custom(s, data: dict) -> str:
