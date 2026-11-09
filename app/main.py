@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 
 import csv
 import io
-from . import auth as authmod, config, icons, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler, services
+from . import auth as authmod, config, icons, notifier, database as db, device_discovery as dd, ip_manager as ipm, scheduler, services, tls
 from .database import ConflictRule, Event, Reservation, ScanResult, ScanRun, SourceRecord, SourceStatus, Subnet
 from .util import iso, norm_ip, norm_mac
 
@@ -441,6 +441,29 @@ def put_settings(body: dict, s=Depends(session)):
         raise HTTPException(422, str(e))
     scheduler.reschedule()
     return {"ok": True}
+
+
+class TlsIn(BaseModel):
+    cert: str
+    key: str
+
+
+@app.get("/api/tls", dependencies=[Depends(need_settings_auth)])
+def get_tls():
+    return tls.status()
+
+
+@app.put("/api/tls", dependencies=[Depends(need_settings_auth)])
+def put_tls(body: TlsIn):
+    try:
+        return tls.save(body.cert, body.key)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.delete("/api/tls", dependencies=[Depends(need_settings_auth)])
+def delete_tls():
+    return tls.remove()
 
 
 @app.post("/api/test/{name}", dependencies=[Depends(need_settings_auth)])

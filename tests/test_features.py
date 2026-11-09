@@ -520,3 +520,74 @@ def test_rename_category_moves_all_its_tiles(s):
     assert cats == {"Alpha": "Filmy", "Beta": "Filmy", "Gamma": "Other"}
     with pytest.raises(ValueError):
         rename_category(s, "Filmy", "  ")
+
+
+def _self_signed(tmp_path, names=("scanner.lan",)):
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[0])])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now)
+            .not_valid_after(now + datetime.timedelta(days=30))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(n) for n in names]), critical=False)
+            .sign(key, hashes.SHA256()))
+    pem_key = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+    return cert.public_bytes(serialization.Encoding.PEM).decode(), pem_key
+
+
+def test_tls_save_validates_pair_and_removes(tmp_path, monkeypatch):
+    from app import tls
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    assert tls.status()["installed"] is False
+    cert, key = _self_signed(tmp_path)
+    other_cert, _ = _self_signed(tmp_path, names=("other.lan",))
+    with pytest.raises(ValueError, match="nie pasuje"):
+        tls.save(other_cert, key)
+    with pytest.raises(ValueError, match="PEM"):
+        tls.save("nie cert", key)
+    st = tls.save(cert, key)
+    assert st["installed"] is True and st["names"] == ["scanner.lan"]
+    assert (tmp_path / "tls" / "key.pem").stat().st_mode & 0o777 == 0o600
+    assert tls.paths() is not None
+    assert tls.remove()["installed"] is False
+    assert tls.paths() is None
+
+
+def test_tls_routes_roundtrip(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main.scheduler.sched, "start", lambda: None)
+    monkeypatch.setattr(main.scheduler.sched, "shutdown", lambda **k: None)
+    monkeypatch.setattr(main.scheduler, "reschedule", lambda: None)
+    monkeypatch.setattr(main.dd, "refresh_source", lambda n: None)
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    cert, key = _self_signed(tmp_path)
+    with TestClient(main.app) as c:
+        assert c.put("/api/tls", json={"cert": cert, "key": "x"}).status_code == 422
+        assert c.put("/api/tls", json={"cert": cert, "key": key}).json()["installed"] is True
+        assert c.get("/api/tls").json()["installed"] is True
+        assert c.delete("/api/tls").json()["installed"] is False
+
+
+def test_tls_https_env_switch(tmp_path, monkeypatch):
+    from app import tls
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    cert, key = _self_signed(tmp_path)
+    tls.save(cert, key)
+    monkeypatch.setenv("HTTPS", "0")
+    assert tls.enabled() is False
+    monkeypatch.setenv("HTTPS", "auto")
+    assert tls.enabled() is True
+    monkeypatch.setenv("HTTPS", "1")
+    assert tls.enabled() is True
+    tls.remove()
+    with pytest.raises(RuntimeError):
+        tls.enabled()
+    monkeypatch.setenv("HTTPS", "auto")
+    assert tls.enabled() is False
