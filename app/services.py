@@ -2,7 +2,8 @@
 
 Service tiles come from Dockhand containers that publish a port (or set a `dashboard.url` label).
 Optional labels on the container (set in docker-compose / the container itself) override the defaults:
-  dashboard.url          full link (default: http://<environment host>:<published port>)
+  dashboard.url          full link (default: http://<environment host>:<port>)
+  dashboard.port         port used in the default link (default: first published port, else 80)
   dashboard.name         tile title (default: container name)
   dashboard.category     category (default: guessed from the image name)
   dashboard.description  text (default: image name)
@@ -65,12 +66,14 @@ def _service_url(extra: dict, labels: dict) -> str | None:
     host = extra.get("env_host")
     if not host:
         return None
+    if labels.get("dashboard.port"):  # explicit port chosen by the user
+        return f"http://{host}:{labels['dashboard.port']}"
     for p in extra.get("ports") or []:
         if p.get("ip") in ("127.0.0.1", "::1"):  # bound to loopback only: not reachable from the LAN
             continue
         if p.get("public"):
             return f"http://{host}:{p['public']}"
-    return None
+    return f"http://{host}:80"  # no published port: assume the web UI is on 80
 
 
 def build_services(s) -> list[dict]:
