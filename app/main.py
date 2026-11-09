@@ -121,7 +121,7 @@ def auth_password(d: PwIn, request: Request, s=Depends(session)):
 @app.get("/api/health")
 def health(s=Depends(session)):
     s.execute(select(1))
-    return {"status": "ok"}
+    return {"status": "ok", "version": config.APP_VERSION}
 
 
 @app.get("/api/summary")

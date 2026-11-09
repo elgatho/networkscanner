@@ -36,10 +36,11 @@ label{display:block;margin:6px 0 2px;color:var(--mut);font-size:12px}label.c{dis
 .tile .tx{min-width:0;flex:1}.tile .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .ds{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tile .hs{color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:4px}.dot.run{background:var(--ok)}
+footer{text-align:center;color:var(--mut);font-size:12px;padding:18px 16px 24px}
 @media(max-width:600px){.big{font-size:30px}.tiles{grid-template-columns:1fr 1fr}}
 </style></head><body>
 <header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
-<main id="main"></main><dialog id="dlg"></dialog><div id="toast"></div>
+<main id="main"></main><footer id="ver"></footer><dialog id="dlg"></dialog><div id="toast"></div>
 <script>
 const $=(s,e=document)=>e.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let TOKEN=localStorage.getItem('tok')||'', tab='home', D={}, sortK='ip', sortD=1, F={q:'',subnet:'',vlan:'',status:'',source:'',conflict:false,hq:''}, HOME=null;
@@ -166,5 +167,6 @@ async function ignoreConflict(ip,mac){const note=prompt('Silence conflict on '+i
 async function exportCsv(){const qs=new URLSearchParams();for(const k of['q','subnet','vlan','status','source'])if(F[k])qs.set(k,F[k]);
  const r=await fetch('/api/export/ips.csv?'+qs,{headers:{'X-Access-Token':TOKEN}});if(!r.ok)return toast('Export failed: '+r.status);
  const u=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=u;a.download='ip-addresses.csv';a.click();URL.revokeObjectURL(u)}
+api('/health').then(h=>$('#ver').textContent='IP Scanner v'+h.version).catch(()=>{});
 render(true);setInterval(()=>{if(tab=='dash'||tab=='subnets')render(true);else if(tab=='home')homeView(true)},30000);
 </script></body></html>

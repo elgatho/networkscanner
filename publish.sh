@@ -6,7 +6,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 USER_NAME="${1:-}"; VERSION="${2:-}"; shift 2 || true
-[[ -n "$USER_NAME" && -n "$VERSION" ]] || { echo "usage: $0 <dockerhub-user> <version> [--multiarch] [--no-latest] [--skip-tests]"; exit 1; }
+[[ -n "$USER_NAME" ]] || { echo "usage: $0 <dockerhub-user> [version] [--multiarch] [--no-latest] [--skip-tests]"; exit 1; }
+# no version given (or a flag in its place): bump the patch number of VERSION, so every build gets a new one
+if [[ -z "$VERSION" || "$VERSION" == --* ]]; then
+  [[ "$VERSION" == --* ]] && set -- "$VERSION" "$@"
+  CUR=$(tr -d '[:space:]' < VERSION); IFS=. read -r MA MI PA <<< "$CUR"
+  VERSION="$MA.$MI.$((PA+1))"; printf '%s\n' "$VERSION" > VERSION
+  echo "==> version $CUR -> $VERSION (VERSION file updated; commit it)"
+fi
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$ ]] || { echo "version must look like 1.2.3"; exit 1; }
 
 MULTI=0; LATEST=1; TESTS=1
@@ -32,14 +39,15 @@ if [[ -n "${DOCKERHUB_TOKEN:-}" ]]; then
 fi
 docker info >/dev/null 2>&1 || { echo "ERROR: cannot talk to Docker daemon (permissions?)"; exit 1; }
 
+BARGS=(--build-arg "APP_VERSION=$VERSION")
 LABELS=(--label "org.opencontainers.image.version=$VERSION" --label "org.opencontainers.image.created=$(date -u +%FT%TZ)")
 
 if [[ $MULTI == 1 ]]; then
   echo "==> multi-arch build + push (amd64, arm64)"
   docker buildx inspect ipscanner-builder >/dev/null 2>&1 || docker buildx create --name ipscanner-builder >/dev/null
-  docker buildx build --builder ipscanner-builder --platform linux/amd64,linux/arm64 "${LABELS[@]}" "${TAGS[@]}" --push .
+  docker buildx build --builder ipscanner-builder --platform linux/amd64,linux/arm64 "${BARGS[@]}" "${LABELS[@]}" "${TAGS[@]}" --push .
 else
-  echo "==> build"; docker build "${LABELS[@]}" "${TAGS[@]}" .
+  echo "==> build"; docker build "${BARGS[@]}" "${LABELS[@]}" "${TAGS[@]}" .
   echo "==> smoke test (container must become healthy)"
   CID=$(docker run -d --rm -p 127.0.0.1:18080:8080 -e PORT=8080 -v "$(mktemp -d)":/data "$IMAGE:$VERSION")
   trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
