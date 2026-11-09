@@ -63,7 +63,7 @@ async function render(force){document.querySelectorAll('nav button').forEach(b=>
 const fmtB=n=>{if(n==null)return'—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const pct=(a,b)=>b?Math.round(100*a/b):0, bar=p=>`<div class="hbar"><i class="${p>90?'hx':p>75?'hi':''}" style="width:${Math.min(100,p)}%"></i></div>`;
 async function homeView(force){if(force||!HOME){try{HOME=await api('/dashboard')}catch(e){if(!HOME){$('#main').innerHTML=`<div class="card">${esc(e.message)}</div>`;return}}}
- if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"><button class="b" id="hadd">+ Dodaj kafelek</button><button class="b" id="hedit"></button></div><div id="hn"></div><div id="hg"></div>';
+ if(!$('#hs')){$('#main').innerHTML='<div id="hs"></div><div class="bar-f"><input id="hq" placeholder="Szukaj usług (nazwa, kategoria, opis, adres)…" style="flex:1;min-width:220px" autocomplete="off"></div><div id="hn"></div><div id="hg"></div><div class="bar-f" style="margin-top:14px"><button class="b" id="hadd">+ Dodaj kafelek</button><span style="flex:1"></span><button class="b" id="hedit"></button></div>';
   $('#hq').value=F.hq; $('#hq').oninput=e=>{F.hq=e.target.value;homeGrid()};
   $('#hq').onkeydown=e=>{const q=F.hq.trim();if(e.key!='Enter'||!q)return;if(!visibleServices().length&&searchOn())location.href=searchUrl(q)};
   $('#hadd').onclick=()=>tileDialog(null);
@@ -90,6 +90,7 @@ function homeStats(){const p=HOME.proxmox;let h;
  $('#hs').innerHTML=h}
 function homeGrid(){const q=(F.hq||'').trim(), list=visibleServices();
  $('#hedit').textContent=EDIT?'✓ Gotowe':'✎ Edytuj kafelki'; $('#hedit').classList.toggle('p',EDIT);
+ $('#hadd').style.display=EDIT?'':'none';
  if(!HOME.services.length){$('#hn').innerHTML='';$('#hg').innerHTML=`<div class="card">Brak usług. Kontenery Dockhand z opublikowanym portem lub z adresem LAN pojawią się tutaj (albo ustaw label <code>dashboard.url</code>).</div>`;return}
  $('#hn').innerHTML=(!list.length&&q)?`<div class="card">Brak wyników dla „${esc(q)}”.${searchOn()?` <span class="lbl">Enter = szukaj w SearXNG</span> · <a href="${esc(searchUrl(q))}" target="_blank" rel="noopener">otwórz wyniki wyszukiwania ↗</a>`:''}</div>`:'';
  if(!list.length){$('#hg').innerHTML='';return}
