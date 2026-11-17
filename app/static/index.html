@@ -4,6 +4,19 @@
 <style>
 :root{--bg:#f4f6f9;--card:#fff;--tx:#1b2430;--mut:#6b7684;--bd:#dde3ea;--ac:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
 @media(prefers-color-scheme:dark){:root{--bg:#0f141a;--card:#18202a;--tx:#e6ebf1;--mut:#8b97a5;--bd:#2a3542;--ac:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171}}
+/* motyw Liquid glass (data-theme="liquid" na <html>); domyślny motyw = powyższe zmienne */
+:root[data-theme=liquid]{--bg:#e4ebf5;--card:rgba(255,255,255,.55);--tx:#16202e;--mut:#5b6777;--bd:rgba(255,255,255,.7);--ac:#3b6fe0;--ok:#15803d;--warn:#b45309;--bad:#dc2626}
+@media(prefers-color-scheme:dark){:root[data-theme=liquid]{--bg:#0a0f1e;--card:rgba(255,255,255,.08);--tx:#e8eef8;--mut:#9aa6ba;--bd:rgba(255,255,255,.16);--ac:#7aa7ff;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171}}
+html[data-theme=liquid] body{background:radial-gradient(900px 600px at 10% -10%,rgba(120,170,255,.55),transparent 60%),radial-gradient(800px 600px at 110% 20%,rgba(255,160,220,.45),transparent 60%),radial-gradient(700px 500px at 40% 110%,rgba(140,255,210,.4),transparent 60%),var(--bg);background-attachment:fixed}
+@media(prefers-color-scheme:dark){html[data-theme=liquid] body{background:radial-gradient(900px 600px at 10% -10%,rgba(70,110,255,.35),transparent 60%),radial-gradient(800px 600px at 110% 20%,rgba(190,90,220,.3),transparent 60%),radial-gradient(700px 500px at 40% 110%,rgba(40,180,150,.25),transparent 60%),var(--bg);background-attachment:fixed}}
+html[data-theme=liquid] header,html[data-theme=liquid] .card,html[data-theme=liquid] .tile,html[data-theme=liquid] dialog,html[data-theme=liquid] body.mobile nav{background:var(--card);-webkit-backdrop-filter:blur(20px) saturate(170%);backdrop-filter:blur(20px) saturate(170%);border-color:var(--bd);box-shadow:0 8px 32px rgba(31,38,135,.12),inset 0 1px 0 rgba(255,255,255,.6)}
+html[data-theme=liquid] .card,html[data-theme=liquid] .tile,html[data-theme=liquid] dialog{border-radius:18px}
+html[data-theme=liquid] header{border-radius:0 0 18px 18px;margin:0 12px;border:1px solid var(--bd);border-top:0}
+html[data-theme=liquid] input,html[data-theme=liquid] select,html[data-theme=liquid] button.b,html[data-theme=liquid] textarea{background:rgba(255,255,255,.4);border-color:var(--bd);border-radius:12px}
+html[data-theme=liquid] button.p{background:var(--ac);border-color:transparent;box-shadow:0 4px 14px color-mix(in srgb,var(--ac) 40%,transparent)}
+html[data-theme=liquid] nav button.on{background:rgba(255,255,255,.35);border-radius:999px}
+html[data-theme=liquid] th{background:transparent;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+html[data-theme=liquid] #toast{background:rgba(22,32,46,.8);color:#fff;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:14px}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif}
 header{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--bd);background:var(--card);flex-wrap:wrap}
 header h1{font-size:16px;margin:0 12px 0 0}nav button{background:none;border:0;color:var(--mut);padding:8px 12px;cursor:pointer;font-size:14px;border-radius:6px}
@@ -56,7 +69,11 @@ body.mobile input,body.mobile select,body.mobile textarea{font-size:16px}
 body.mobile .pvenodes{display:none}
 body.mobile #toast{bottom:76px;left:12px;right:12px;text-align:center}
 </style></head><body>
-<header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><span class="lbl" id="upd"></span></header>
+<header><h1>🛰 IP Scanner</h1><nav id="nav"></nav><span style="flex:1"></span><select id="thm" title="Motyw" aria-label="Motyw" style="font-size:12px;padding:3px 6px"><option value="default">Motyw: domyślny</option><option value="liquid">Motyw: Liquid glass</option></select><span class="lbl" id="upd"></span></header>
+<script>(function(){function get(){try{return localStorage.getItem('theme')||'default'}catch(e){return'default'}}
+function apply(t){t=t==='liquid'?'liquid':'default';document.documentElement.dataset.theme=t;const s=document.getElementById('thm');if(s)s.value=t}
+apply(get());
+document.addEventListener('DOMContentLoaded',()=>{apply(get());const s=document.getElementById('thm');if(s)s.onchange=()=>{try{localStorage.setItem('theme',s.value)}catch(e){}apply(s.value)}})})();</script>
 <main id="main"></main><footer id="ver"></footer><dialog id="dlg"></dialog><div id="toast"></div>
 <script>
 const $=(s,e=document)=>e.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
